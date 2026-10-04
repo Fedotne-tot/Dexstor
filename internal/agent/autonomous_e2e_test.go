@@ -1,0 +1,285 @@
+package agent
+
+import (
+	"encoding/json"
+	"net/http"
+	"net/http/httptest"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+
+	"bratan-go/internal/ollama"
+	"bratan-go/internal/tools"
+)
+
+func TestAutonomousEndToEnd(t *testing.T) {
+	root := t.TempDir()
+
+	task := "Исправь math.pl так, чтобы add(2, 3) возвращала 10. Не ломай test.pl. Используй read_file/write_file/git_diff/test."
+
+	math := `sub add {
+    my ($a, $b) = @_;
+    return $a + $b;
+}
+
+use Exporter qw(import);
+our @EXPORT_OK = qw(add);
+
+1;
+`
+
+	testProgram := `require "./math.pl";
+
+my $result = add(2, 3);
+
+die "WRONG: $result\n" unless $result == 10;
+
+print "PASS\n";
+`
+
+	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(math), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := os.WriteFile(filepath.Join(root, "test.pl"), []byte(testProgram), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Real Git repository: exercise the real git_diff tool.
+	gitCommands := [][]string{
+		{"git", "-C", root, "init"},
+		{"git", "-C", root, "config", "user.email", "test@example.com"},
+		{"git", "-C", root, "config", "user.name", "BRATAN Test"},
+		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "commit", "-m", "initial e2e state"},
+	}
+
+	for _, cmd := range gitCommands {
+		output, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput()
+		if err != nil {
+			t.Fatalf("%v failed: %v\n%s", cmd, err, output)
+		}
+	}
+
+	var mu sync.Mutex
+	requests := 0
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/generate" {
+			http.NotFound(w, r)
+			return
+		}
+
+		var req struct {
+			Model  string `json:"model"`
+			Prompt string `json:"prompt"`
+			Stream bool   `json:"stream"`
+		}
+
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+
+		mu.Lock()
+		requests++
+		n := requests
+		mu.Unlock()
+
+		var response string
+
+		switch (n - 1) % 3 {
+		case 0:
+			response = `TOOL_CALL
+name: inspect_project`
+
+		case 1:
+			response = `TOOL_CALL
+name: read_file
+arg: math.pl`
+
+		case 2:
+			response = `TOOL_CALL
+name: write_file
+path: math.pl
+content: sub add {
+    my ($a, $b) = @_;
+    return 10;
+}
+
+use Exporter qw(import);
+our @EXPORT_OK = qw(add);
+
+1;
+`
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]string{
+			"response": response,
+		})
+	}))
+	defer server.Close()
+
+	newAgent := func() *Agent {
+		return &Agent{
+			Model:     "test-model",
+			Max:       20,
+			Root:      root,
+			Router:    tools.New(root),
+			Ollama:    ollama.New(server.URL),
+			State:     StateDiscover,
+			ReadFiles: make(map[string]string),
+		}
+	}
+
+	// ------------------------------------------------------------------
+	// RUN #1: full autonomous path to DONE.
+	// ------------------------------------------------------------------
+
+	agent1 := newAgent()
+
+	if err := agent1.Run(task); err != nil {
+		t.Fatalf("first autonomous run failed: %v", err)
+	}
+
+	if agent1.State != StateDone {
+		t.Fatalf("first run: expected StateDone, got %s", agent1.State)
+	}
+
+	data, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(data), "return 10;") {
+		t.Fatalf("first run did not repair math.pl:\n%s", data)
+	}
+
+	state, ok, err := loadTaskState(root, task)
+	if err != nil {
+		t.Fatalf("load persisted state: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected persisted task state after first run")
+	}
+
+	if state.State != StateDone {
+		t.Fatalf("persisted state: expected DONE, got %s", state.State)
+	}
+
+	if state.Iteration != 5 {
+		t.Fatalf("persisted state: expected iteration 6, got %d", state.Iteration)
+	}
+
+	firstRunRequests := requests
+
+	if firstRunRequests != 3 {
+		t.Fatalf("first run: expected 3 Ollama requests, got %d", firstRunRequests)
+	}
+
+	// ------------------------------------------------------------------
+	// EXTERNAL CHANGE: invalidate the completed task after persistence.
+	// ------------------------------------------------------------------
+
+	brokenMath := strings.Replace(
+		string(data),
+		"return 10;",
+		"return $a + $b;",
+		1,
+	)
+
+	if err := os.WriteFile(
+		filepath.Join(root, "math.pl"),
+		[]byte(brokenMath),
+		0644,
+	); err != nil {
+		t.Fatal(err)
+	}
+
+	// ------------------------------------------------------------------
+	// RUN #2: same task, persisted DONE, but filesystem is stale.
+	// Reconcile must reject DONE and restart the FSM.
+	// ------------------------------------------------------------------
+
+	agent2 := newAgent()
+
+	if err := agent2.Run(task); err != nil {
+		t.Fatalf("second autonomous run failed: %v", err)
+	}
+
+	if agent2.State != StateDone {
+		t.Fatalf("second run: expected StateDone, got %s", agent2.State)
+	}
+
+	data, err = os.ReadFile(filepath.Join(root, "math.pl"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !strings.Contains(string(data), "return 10;") {
+		t.Fatalf("second run did not repair externally changed math.pl:\n%s", data)
+	}
+
+	state, ok, err = loadTaskState(root, task)
+	if err != nil {
+		t.Fatalf("load final persisted state: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected final persisted task state")
+	}
+
+	if state.State != StateDone {
+		t.Fatalf("final persisted state: expected DONE, got %s", state.State)
+	}
+
+	totalRequests := requests
+
+	if totalRequests != 6 {
+		t.Fatalf("expected 6 total Ollama requests across two runs, got %d", totalRequests)
+	}
+
+	// Second run must have executed the full model-driven discovery path.
+	if len(agent2.History) != 5 {
+		t.Fatalf(
+			"second run: expected 5 actions, got %d: %v",
+			len(agent2.History),
+			agent2.History,
+		)
+	}
+
+	wantHistory := []string{
+		"inspect_project",
+		"read_file:math.pl",
+		"write_file:math.pl",
+		"git_diff",
+		"test:test.pl",
+	}
+
+	// The controller records exactly these successful actions for the
+	// normal path. Compare the prefix that represents the workflow.
+	for i, want := range wantHistory {
+		if i >= len(agent2.History) {
+			t.Fatalf("second run history missing action %q", want)
+		}
+
+		if agent2.History[i] != want {
+			t.Fatalf(
+				"second run history[%d]: got %q, want %q; history=%v",
+				i,
+				agent2.History[i],
+				want,
+				agent2.History,
+			)
+		}
+	}
+
+	t.Logf("first run history: %v", agent1.History)
+	t.Logf("second run history: %v", agent2.History)
+	t.Logf("total Ollama requests: %d", totalRequests)
+}
