@@ -21,7 +21,8 @@ type Result struct {
 }
 
 type Router struct {
-	Root string
+	Root          string
+	ProtectedPath map[string]bool
 }
 
 func New(root string) *Router {
@@ -30,7 +31,12 @@ func New(root string) *Router {
 		abs = root
 	}
 
-	return &Router{Root: abs}
+	return &Router{
+		Root: abs,
+		ProtectedPath: map[string]bool{
+			"test.pl": true,
+		},
+	}
 }
 
 func (r *Router) safePath(path string) (string, error) {
@@ -98,6 +104,16 @@ func (r *Router) safePath(path string) (string, error) {
 	return abs, nil
 }
 
+func (r *Router) isProtected(path string) bool {
+	clean := filepath.Clean(path)
+
+	if filepath.IsAbs(clean) {
+		return false
+	}
+
+	return r.ProtectedPath[clean]
+}
+
 func (r *Router) Read(path string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
@@ -121,6 +137,14 @@ func (r *Router) Write(path, content string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
 		return Result{Tool: "write_file", Error: err.Error()}
+	}
+
+	if r.isProtected(path) {
+		return Result{
+			Tool:  "write_file",
+			Path:  path,
+			Error: fmt.Sprintf("protected file cannot be modified: %s", path),
+		}
 	}
 
 	/*
