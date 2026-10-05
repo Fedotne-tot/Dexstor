@@ -483,6 +483,15 @@ func (r *Router) AssertOutput(command, expected string) Result {
 		}
 	}
 
+	if protected, blocked := r.commandTargetsProtectedPath(command); blocked {
+		return Result{
+			Tool:   "assert_output",
+			Error:  fmt.Sprintf("protected file cannot be accessed through assert_output: %s", protected),
+			Status: "FAIL",
+			Exit:   1,
+		}
+	}
+
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = r.Root
 

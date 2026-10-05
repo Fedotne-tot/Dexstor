@@ -114,3 +114,41 @@ func TestExecProtectedFailureIsExplicit(t *testing.T) {
 		t.Fatalf("expected an explicit error/result for protected exec, got: %+v", result)
 	}
 }
+
+func TestAssertOutputCannotModifyProtectedTestFile(t *testing.T) {
+	root := t.TempDir()
+
+	original := "ORIGINAL_TEST_CONTENT\n"
+	testPath := filepath.Join(root, "test.pl")
+
+	if err := os.WriteFile(testPath, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	r := New(root)
+
+	result := r.AssertOutput(
+		"cat > test.pl <<'EOF'\nMODIFIED_BY_ASSERT_OUTPUT\nEOF",
+		"",
+	)
+
+	got, err := os.ReadFile(testPath)
+	if err != nil {
+		t.Fatalf("protected test.pl was deleted through assert_output: %v", err)
+	}
+
+	if string(got) != original {
+		t.Fatalf(
+			"protected test.pl was modified through assert_output:\nwant:\n%s\ngot:\n%s",
+			original,
+			got,
+		)
+	}
+
+	if result.OK {
+		t.Fatalf(
+			"expected assert_output protection failure, got success: %+v",
+			result,
+		)
+	}
+}
