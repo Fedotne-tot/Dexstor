@@ -26,6 +26,7 @@ func pendingWrite(tool, path, content string) *PendingAction {
 			"path":    path,
 			"content": content,
 		},
+		BaseHash: contentHash("base snapshot\n"),
 	}
 }
 
@@ -66,6 +67,17 @@ func TestPersistedStateIntegrityAcceptsRepairWritePendingAction(t *testing.T) {
 
 	if err := validatePersistedStateIntegrity(state); err != nil {
 		t.Fatalf("REPAIR_WRITE pending action should be accepted: %v", err)
+	}
+}
+
+func TestPersistedStateIntegrityRejectsPendingWithoutBaseHash(t *testing.T) {
+	state := persistedStateBase()
+	state.State = StateWriteReq
+	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
+	state.PendingAction.BaseHash = ""
+
+	if err := validatePersistedStateIntegrity(state); err == nil {
+		t.Fatal("pending write without base hash must be rejected")
 	}
 }
 

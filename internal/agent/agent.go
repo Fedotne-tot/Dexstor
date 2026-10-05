@@ -435,7 +435,12 @@ func (a *Agent) validateCompletion() error {
 			hasRepairRead = true
 
 		case "repair_write":
+			hasWrite = true
 			hasRepairWrite = true
+
+			if item.Iteration > lastWrite {
+				lastWrite = item.Iteration
+			}
 		}
 	}
 
@@ -944,12 +949,15 @@ func (a *Agent) Run(task string) error {
 			)
 
 			if saved.State == StateDone {
-				fmt.Println("[BRATAN GO] task already completed")
-
-				if a.LastTestError == "" ||
-					strings.Contains(strings.ToUpper(a.LastResult), "PASS") {
-					fmt.Println("[BRATAN GO] persisted result: PASS")
+				if err := a.validateCompletion(); err != nil {
+					return fmt.Errorf(
+						"persisted DONE state failed completion validation: %w",
+						err,
+					)
 				}
+
+				fmt.Println("[BRATAN GO] task already completed")
+				fmt.Println("[BRATAN GO] persisted result: PASS")
 
 				return nil
 			}
@@ -1398,14 +1406,14 @@ func (a *Agent) Run(task string) error {
 
 				if result.Output != "" {
 					fmt.Printf(
-						"[BRATAN GO] assert_output output: %s\n",
+						"[BRATAN GO] assert_output output: %s\\n",
 						result.Output,
 					)
 				}
 
 				if !result.OK {
 					fmt.Printf(
-						"[BRATAN GO] assert_output failed: %s\n",
+						"[BRATAN GO] assert_output failed: %s\\n",
 						result.Error,
 					)
 					continue
@@ -1421,19 +1429,24 @@ func (a *Agent) Run(task string) error {
 					result.Output,
 				)
 
-				a.State = StateDone
+				// assert_output is verification evidence only.
+				// It must never complete the task.
+				// Completion requires:
+				// write_file -> git_diff -> test PASS -> validateCompletion -> DONE
+				a.State = StateWriteReq
 
 				if err := a.saveState(task, iteration); err != nil {
 					return err
 				}
 
 				fmt.Println("[BRATAN GO] ASSERT_OUTPUT PASS")
+				fmt.Println(
+					"[BRATAN GO] assert_output is verification-only; state -> WRITE_REQUIRED",
+				)
 				fmt.Printf(
 					"[BRATAN GO] history=%v\\n",
 					a.History,
 				)
-
-				return nil
 
 			case "write_file":
 				path := value(call.Args, "path", "")
@@ -1498,7 +1511,7 @@ func (a *Agent) Run(task string) error {
 					return err
 				}
 
-				result := a.Router.Write(path, content)
+				result := a.Router.WriteWithBaseHash(path, content, baseHash)
 				a.recordActionWithBaseHash(
 					iteration,
 					"write_file",
@@ -1517,7 +1530,11 @@ func (a *Agent) Run(task string) error {
 						"[BRATAN GO] write failed: %s\n",
 						result.Error,
 					)
-					continue
+					return fmt.Errorf(
+						"write_file failed for %q: %s",
+						path,
+						result.Error,
+					)
 				}
 
 				a.Wrote = true
@@ -1619,7 +1636,7 @@ func (a *Agent) Run(task string) error {
 				return err
 			}
 
-			result := a.Router.Write(path, content)
+			result := a.Router.WriteWithBaseHash(path, content, baseHash)
 			a.recordActionWithBaseHash(
 				iteration,
 				"write_file",
@@ -1634,11 +1651,11 @@ func (a *Agent) Run(task string) error {
 			a.PendingAction = nil
 
 			if !result.OK {
-				fmt.Printf(
-					"[BRATAN GO] write failed: %s\n",
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
 					result.Error,
 				)
-				continue
 			}
 
 			a.Wrote = true
@@ -1750,7 +1767,7 @@ func (a *Agent) Run(task string) error {
 				return err
 			}
 
-			result := a.Router.Write(path, content)
+			result := a.Router.WriteWithBaseHash(path, content, repairBaseHash)
 			a.recordActionWithBaseHash(
 				iteration,
 				"repair_write",

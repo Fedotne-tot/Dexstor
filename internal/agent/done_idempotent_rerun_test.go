@@ -93,6 +93,72 @@ print "PASS\n";
 
 	first := newAgent()
 
+	writeArgs := []string{
+		"math.pl",
+		math,
+	}
+
+	first.ActionLedger = []ActionRecord{
+		{
+			Iteration: 1,
+			Tool:      "inspect_project",
+			OK:        true,
+			Exit:      0,
+			ActionKey: makeActionKey("inspect_project"),
+			Result:    "math.pl\ntest.pl",
+		},
+		{
+			Iteration: 2,
+			Tool:      "read_file",
+			Args:      []string{"math.pl"},
+			OK:        true,
+			Exit:      0,
+			ActionKey: makeActionKey("read_file", "math.pl"),
+			Result:    math,
+		},
+		{
+			Iteration: 3,
+			Tool:      "write_file",
+			Args:      writeArgs,
+			BaseHash:  contentHash(math),
+			OK:        true,
+			Exit:      0,
+			ActionKey: makeActionKey("write_file", writeArgs...),
+			Result:    "written",
+		},
+		{
+			Iteration: 4,
+			Tool:      "git_diff",
+			OK:        true,
+			Exit:      0,
+			ActionKey: makeActionKey("git_diff"),
+			Result:    "diff checked",
+		},
+		{
+			Iteration: 5,
+			Tool:      "test",
+			Args:      []string{"test.pl"},
+			OK:        true,
+			Exit:      0,
+			ActionKey: makeActionKey("test", "test.pl"),
+			Result:    "PASS\n",
+		},
+	}
+
+	first.History = []string{
+		"inspect_project",
+		"read_file:math.pl",
+		"write_file:math.pl",
+		"git_diff",
+		"test:test.pl",
+	}
+
+	first.Wrote = true
+	first.DiffChecked = true
+	first.LastWritePath = "math.pl"
+	first.LastResult = "PASS"
+	first.LastAction = "test:test.pl"
+
 	if err := first.saveState(task, 10); err != nil {
 		t.Fatalf("save DONE state: %v", err)
 	}
@@ -131,9 +197,9 @@ print "PASS\n";
 		t.Fatal("DONE rerun modified math.pl")
 	}
 
-	if len(second.History) != 0 {
+	if len(second.History) != 5 {
 		t.Fatalf(
-			"DONE rerun created actions: %v",
+			"DONE rerun changed action history: %v",
 			second.History,
 		)
 	}

@@ -42,7 +42,8 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 	original := New(root, "test-model", 10)
 	original.State = StateWriteReq
 	original.PendingAction = &PendingAction{
-		Tool: "write_file",
+		Tool:     "write_file",
+		BaseHash: contentHash(initial),
 		Args: map[string]string{
 			"path":    "math.pl",
 			"content": repaired,

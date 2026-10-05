@@ -1,6 +1,8 @@
 package tools
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"os/exec"
@@ -114,15 +116,52 @@ func (r *Router) isProtected(path string) bool {
 	return r.ProtectedPath[clean]
 }
 
+// commandTargetsProtectedPath performs a conservative check before
+// executing a shell command. Protected files must remain protected
+// regardless of whether the command uses shell redirection, rm,
+// perl, cp, mv, or another executable.
+//
+// The check intentionally happens before /bin/sh is started.
+func (r *Router) commandTargetsProtectedPath(command string) (string, bool) {
+	for protected := range r.ProtectedPath {
+		relative := filepath.Clean(protected)
+		absolute := filepath.Join(r.Root, relative)
+
+		candidates := []string{
+			relative,
+			"." + string(os.PathSeparator) + relative,
+			absolute,
+		}
+
+		for _, candidate := range candidates {
+			if strings.Contains(command, candidate) {
+				return protected, true
+			}
+		}
+	}
+
+	return "", false
+}
+
 func (r *Router) Read(path string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
-		return Result{Tool: "read_file", Error: err.Error()}
+		return Result{
+			Tool:   "read_file",
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	data, err := os.ReadFile(abs)
 	if err != nil {
-		return Result{Tool: "read_file", Error: err.Error()}
+		return Result{
+			Tool:   "read_file",
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	return Result{
@@ -130,65 +169,149 @@ func (r *Router) Read(path string) Result {
 		Tool:    "read_file",
 		Path:    path,
 		Content: string(data),
+		Status:  "PASS",
+		Exit:    0,
 	}
 }
 
 func (r *Router) Write(path, content string) Result {
+	return r.write(path, content, "")
+}
+
+func (r *Router) WriteWithBaseHash(path, content, baseHash string) Result {
+	if baseHash == "" {
+		return Result{
+			Tool:   "write_file",
+			Path:   path,
+			Error:  "base hash is required",
+			Status: "FAIL",
+			Exit:   1,
+		}
+	}
+
+	return r.write(path, content, baseHash)
+}
+
+func (r *Router) write(path, content, expectedBaseHash string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
-		return Result{Tool: "write_file", Error: err.Error()}
+		return Result{
+			Tool:   "write_file",
+			Path:   path,
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	if r.isProtected(path) {
 		return Result{
-			Tool:  "write_file",
-			Path:  path,
-			Error: fmt.Sprintf("protected file cannot be modified: %s", path),
+			Tool:   "write_file",
+			Path:   path,
+			Error:  fmt.Sprintf("protected file cannot be modified: %s", path),
+			Status: "FAIL",
+			Exit:   1,
+		}
+	}
+
+	data, err := os.ReadFile(abs)
+	if err != nil {
+		if os.IsNotExist(err) {
+			if expectedBaseHash != "" {
+				return Result{
+					Tool:   "write_file",
+					Path:   path,
+					Error:  "write target does not exist for CAS write",
+					Status: "FAIL",
+					Exit:   1,
+				}
+			}
+
+			data = nil
+		} else {
+			return Result{
+				Tool:   "write_file",
+				Path:   path,
+				Error:  err.Error(),
+				Status: "FAIL",
+				Exit:   1,
+			}
+		}
+	}
+
+	if expectedBaseHash != "" {
+		sum := sha256.Sum256(data)
+		currentHash := hex.EncodeToString(sum[:])
+
+		if currentHash != expectedBaseHash {
+			return Result{
+				Tool: "write_file",
+				Path: path,
+				Error: fmt.Sprintf(
+					"stale snapshot: expected base hash %s, current hash %s",
+					expectedBaseHash,
+					currentHash,
+				),
+				Status: "FAIL",
+				Exit:   1,
+			}
 		}
 	}
 
 	/*
 		Idempotent write:
 		if the target already contains exactly the requested content,
-		there is nothing to write. This also makes repeated tool calls
-		safe after retries or restored FSM actions.
+		there is nothing to write.
 	*/
-	if data, err := os.ReadFile(abs); err == nil {
-		if string(data) == content {
-			return Result{
-				OK:      true,
-				Tool:    "write_file",
-				Path:    path,
-				Content: content,
-			}
-		}
-	} else if !os.IsNotExist(err) {
+	if string(data) == content {
 		return Result{
-			Tool:  "write_file",
-			Path:  path,
-			Error: err.Error(),
+			OK:      true,
+			Tool:    "write_file",
+			Path:    path,
+			Content: content,
+			Status:  "PASS",
+			Exit:    0,
 		}
 	}
 
 	if err := os.MkdirAll(filepath.Dir(abs), 0755); err != nil {
-		return Result{Tool: "write_file", Error: err.Error()}
+		return Result{
+			Tool:   "write_file",
+			Path:   path,
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	if err := os.WriteFile(abs, []byte(content), 0644); err != nil {
-		return Result{Tool: "write_file", Error: err.Error()}
+		return Result{
+			Tool:   "write_file",
+			Path:   path,
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	return Result{
-		OK:   true,
-		Tool: "write_file",
-		Path: path,
+		OK:     true,
+		Tool:   "write_file",
+		Path:   path,
+		Status: "PASS",
+		Exit:   0,
 	}
 }
 
 func (r *Router) Inspect(path string, depth int) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
-		return Result{Tool: "inspect_project", Error: err.Error()}
+		return Result{
+			Tool:   "inspect_project",
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	var lines []string
@@ -229,16 +352,20 @@ func (r *Router) Inspect(path string, depth int) Result {
 
 	if err := walk(abs, 0, ""); err != nil {
 		return Result{
-			Tool:  "inspect_project",
-			Error: err.Error(),
+			Tool:   "inspect_project",
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
 		}
 	}
 
 	return Result{
-		OK:   true,
-		Tool: "inspect_project",
-		Path: path,
-		Tree: strings.Join(lines, "\n"),
+		OK:     true,
+		Tool:   "inspect_project",
+		Path:   path,
+		Tree:   strings.Join(lines, "\n"),
+		Status: "PASS",
+		Exit:   0,
 	}
 }
 
@@ -248,15 +375,46 @@ func (r *Router) GitDiff(path string) Result {
 		target = "."
 	}
 
-	cmd := exec.Command("git", "-C", r.Root, "diff", "--", target)
+	cmd := exec.Command(
+		"git",
+		"-C",
+		r.Root,
+		"--no-pager",
+		"diff",
+		"--",
+		target,
+	)
+
+	/*
+		Git must operate independently of the user's global environment.
+		This is required for the AppArmor sandbox and also makes git_diff
+		deterministic for the agent.
+
+		Do not grant the sandbox access to the user's ~/.gitconfig.
+		Do not allow Git to launch an interactive pager.
+	*/
+	cmd.Env = append(
+		os.Environ(),
+		"HOME="+r.Root,
+		"GIT_CONFIG_NOSYSTEM=1",
+		"GIT_PAGER=cat",
+		"PAGER=cat",
+	)
+
 	out, err := cmd.CombinedOutput()
 
 	if err != nil {
+		exit := -1
+		if cmd.ProcessState != nil {
+			exit = cmd.ProcessState.ExitCode()
+		}
+
 		return Result{
 			Tool:   "git_diff",
 			Output: string(out),
 			Error:  err.Error(),
-			Exit:   cmd.ProcessState.ExitCode(),
+			Status: "FAIL",
+			Exit:   exit,
 		}
 	}
 
@@ -264,33 +422,65 @@ func (r *Router) GitDiff(path string) Result {
 		OK:     true,
 		Tool:   "git_diff",
 		Output: string(out),
+		Status: "PASS",
 		Exit:   0,
 	}
 }
 
 func (r *Router) Exec(command string) Result {
 	if strings.TrimSpace(command) == "" {
-		return Result{Tool: "exec", Error: "command is required"}
+		return Result{
+			Tool:   "exec",
+			Error:  "command is required",
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
+
+	if protected, blocked := r.commandTargetsProtectedPath(command); blocked {
+		return Result{
+			Tool:   "exec",
+			Error:  fmt.Sprintf("protected file cannot be accessed through exec: %s", protected),
+			Status: "FAIL",
+			Exit:   1,
+		}
+	}
+
 	cmd := exec.Command("/bin/sh", "-c", command)
 	cmd.Dir = r.Root
+
 	out, err := cmd.CombinedOutput()
-	result := Result{Tool: "exec", Output: string(out)}
+
+	result := Result{
+		Tool:   "exec",
+		Output: string(out),
+	}
+
 	if err == nil {
 		result.OK = true
 		result.Exit = 0
 		result.Status = "PASS"
 		return result
 	}
-	result.Exit = cmd.ProcessState.ExitCode()
+
+	if cmd.ProcessState != nil {
+		result.Exit = cmd.ProcessState.ExitCode()
+	}
+
 	result.Error = err.Error()
 	result.Status = "FAIL"
+
 	return result
 }
 
 func (r *Router) AssertOutput(command, expected string) Result {
 	if strings.TrimSpace(command) == "" {
-		return Result{Tool: "assert_output", Error: "command is required", Status: "FAIL"}
+		return Result{
+			Tool:   "assert_output",
+			Error:  "command is required",
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	cmd := exec.Command("/bin/sh", "-c", command)
@@ -311,7 +501,10 @@ func (r *Router) AssertOutput(command, expected string) Result {
 	}
 
 	if err != nil {
-		result.Exit = cmd.ProcessState.ExitCode()
+		if cmd.ProcessState != nil {
+			result.Exit = cmd.ProcessState.ExitCode()
+		}
+
 		result.Error = err.Error()
 		result.Status = "FAIL"
 		return result
@@ -320,20 +513,31 @@ func (r *Router) AssertOutput(command, expected string) Result {
 	result.Exit = 0
 
 	if actual != expected {
-		result.Error = fmt.Sprintf("output mismatch: expected %q, got %q", expected, actual)
+		result.Error = fmt.Sprintf(
+			"output mismatch: expected %q, got %q",
+			expected,
+			actual,
+		)
 		result.Status = "FAIL"
 		return result
 	}
 
 	result.OK = true
 	result.Status = "PASS"
+
 	return result
 }
 
 func (r *Router) Test(path string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
-		return Result{Tool: "test", Error: err.Error()}
+		return Result{
+			Tool:   "test",
+			Path:   path,
+			Error:  err.Error(),
+			Status: "FAIL",
+			Exit:   1,
+		}
 	}
 
 	cmd := exec.Command("perl", abs)
@@ -347,16 +551,19 @@ func (r *Router) Test(path string) Result {
 		Output: string(out),
 	}
 
-	if err == nil {
-		result.OK = true
-		result.Exit = 0
-		result.Status = "PASS"
+	if err != nil {
+		if cmd.ProcessState != nil {
+			result.Exit = cmd.ProcessState.ExitCode()
+		}
+
+		result.Error = err.Error()
+		result.Status = "FAIL"
 		return result
 	}
 
-	result.Exit = cmd.ProcessState.ExitCode()
-	result.Error = err.Error()
-	result.Status = "FAIL"
+	result.OK = true
+	result.Exit = 0
+	result.Status = "PASS"
 
 	return result
 }

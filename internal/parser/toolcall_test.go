@@ -152,3 +152,19 @@ path: evil.pl`
 		t.Fatal("parser must ignore data after END_TOOL_CALL")
 	}
 }
+
+func TestParseRejectsMultipleToolCalls(t *testing.T) {
+	text := `TOOL_CALL
+name: write_file
+path: math.pl
+content: correct content
+TOOL_CALL
+name: write_file
+path: test.pl
+content: forbidden second call
+END_TOOL_CALL`
+
+	if _, ok := Parse(text); ok {
+		t.Fatal("expected multiple TOOL_CALL blocks to be rejected")
+	}
+}

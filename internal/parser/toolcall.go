@@ -12,6 +12,7 @@ type ToolCall struct {
 
 var nameRe = regexp.MustCompile(`(?im)^\s*name\s*:\s*(\S+)\s*$`)
 var argRe = regexp.MustCompile(`^\s*(path|file|arg|command|expected|timeout)\s*:\s*(.*?)\s*$`)
+var toolCallLineRe = regexp.MustCompile(`(?m)^\s*TOOL_CALL\s*$`)
 
 func Parse(text string) (ToolCall, bool) {
 	start := strings.Index(text, "TOOL_CALL")
@@ -23,6 +24,15 @@ func Parse(text string) (ToolCall, bool) {
 
 	if end := strings.Index(text, "END_TOOL_CALL"); end >= 0 {
 		text = text[:end]
+	}
+
+	/*
+		A single model response must contain exactly one TOOL_CALL.
+		Reject multiple calls instead of allowing the second TOOL_CALL
+		to become part of the first write_file content.
+	*/
+	if len(toolCallLineRe.FindAllStringIndex(text, -1)) != 1 {
+		return ToolCall{}, false
 	}
 
 	call := ToolCall{

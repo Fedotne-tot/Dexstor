@@ -576,6 +576,13 @@ func validatePersistedStateIntegrity(state *TaskState) error {
 				pending.Tool,
 			)
 		}
+
+		if pending.BaseHash == "" {
+			return fmt.Errorf(
+				"persisted state integrity failure: pending %s has empty base hash",
+				pending.Tool,
+			)
+		}
 	}
 
 	switch state.State {
