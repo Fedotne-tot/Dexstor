@@ -465,6 +465,8 @@ func (r *Router) Exec(command string) Result {
 
 	if cmd.ProcessState != nil {
 		result.Exit = cmd.ProcessState.ExitCode()
+	} else {
+		result.Exit = -1
 	}
 
 	result.Error = err.Error()
@@ -512,6 +514,8 @@ func (r *Router) AssertOutput(command, expected string) Result {
 	if err != nil {
 		if cmd.ProcessState != nil {
 			result.Exit = cmd.ProcessState.ExitCode()
+		} else {
+			result.Exit = -1
 		}
 
 		result.Error = err.Error()
@@ -563,6 +567,8 @@ func (r *Router) Test(path string) Result {
 	if err != nil {
 		if cmd.ProcessState != nil {
 			result.Exit = cmd.ProcessState.ExitCode()
+		} else {
+			result.Exit = -1
 		}
 
 		result.Error = err.Error()
