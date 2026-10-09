@@ -564,7 +564,31 @@ func (r *Router) Test(path string) Result {
 		}
 	}
 
-	cmd := exec.Command("perl", abs)
+	var cmd *exec.Cmd
+
+	switch filepath.Ext(abs) {
+	case ".pl":
+		cmd = exec.Command("perl", abs)
+
+	case ".js":
+		cmd = exec.Command("node", abs)
+
+	case ".py":
+		cmd = exec.Command("python3", abs)
+
+	case ".go":
+		cmd = exec.Command("go", "run", abs)
+
+	default:
+		return Result{
+			Tool:   "test",
+			Path:   path,
+			Error:  "unsupported test file type",
+			Status: "FAIL",
+			Exit:   1,
+		}
+	}
+
 	cmd.Dir = r.Root
 
 	out, err := cmd.CombinedOutput()
