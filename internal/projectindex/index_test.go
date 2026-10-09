@@ -48,6 +48,18 @@ print $result;
 
 	mustWrite(".git/ignored.txt", "must not be indexed\n")
 
+	if err := os.MkdirAll(filepath.Join(root, "target/debug"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mustWrite("target/debug/generated.o", "binary build artifact\n")
+
+	if err := os.MkdirAll(filepath.Join(root, ".ai"), 0755); err != nil {
+		t.Fatal(err)
+	}
+
+	mustWrite(".ai/ignored.json", "agent state\n")
+
 	index, err := Build(root)
 	if err != nil {
 		t.Fatalf("Build failed: %v", err)
@@ -94,6 +106,12 @@ print $result;
 
 		case ".git/ignored.txt":
 			t.Fatal(".git contents must not be indexed")
+
+		case "target/debug/generated.o":
+			t.Fatal("target contents must not be indexed")
+
+		case ".ai/ignored.json":
+			t.Fatal(".ai contents must not be indexed")
 		}
 	}
 

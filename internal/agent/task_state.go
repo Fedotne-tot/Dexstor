@@ -577,10 +577,22 @@ func validatePersistedStateIntegrity(state *TaskState) error {
 			)
 		}
 
-		if pending.BaseHash == "" {
+		if pending.Tool == "write_file" {
+			path := pending.Args["path"]
+
+			_, hadSnapshot := state.ReadFiles[path]
+
+			if hadSnapshot && pending.BaseHash == "" {
+				return fmt.Errorf(
+					"persisted state integrity failure: existing write_file path %q has empty base hash",
+					path,
+				)
+			}
+		}
+
+		if pending.Tool == "repair_write" && pending.BaseHash == "" {
 			return fmt.Errorf(
-				"persisted state integrity failure: pending %s has empty base hash",
-				pending.Tool,
+				"persisted state integrity failure: pending repair_write has empty base hash",
 			)
 		}
 	}

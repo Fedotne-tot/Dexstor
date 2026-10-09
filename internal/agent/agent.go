@@ -424,22 +424,30 @@ func (a *Agent) validateCompletion() error {
 				lastWrite = item.Iteration
 			}
 
-		case "git_diff":
-			hasDiff = true
-
-			if item.Iteration > lastDiff {
-				lastDiff = item.Iteration
-			}
-
-		case "repair_read":
-			hasRepairRead = true
-
 		case "repair_write":
 			hasWrite = true
 			hasRepairWrite = true
 
 			if item.Iteration > lastWrite {
 				lastWrite = item.Iteration
+			}
+
+		case "repair_read":
+			hasRepairRead = true
+
+		case "git_diff":
+			/*
+				git_diff was the old verification path.
+				git_diff is the deterministic controller
+				path introduced by VERIFY_DIFF.
+
+				Both represent the same completion phase:
+				changed project state was verified before test.
+			*/
+			hasDiff = true
+
+			if item.Iteration > lastDiff {
+				lastDiff = item.Iteration
 			}
 		}
 	}
@@ -452,16 +460,16 @@ func (a *Agent) validateCompletion() error {
 		return fmt.Errorf("completion blocked: write_file was not completed")
 
 	case !hasDiff:
-		return fmt.Errorf("completion blocked: git_diff was not completed")
+		return fmt.Errorf("completion blocked: diff verification was not completed")
 
 	case !hasPass:
 		return fmt.Errorf("completion blocked: successful test PASS was not recorded")
 
 	case lastWrite >= lastDiff:
-		return fmt.Errorf("completion blocked: final write must occur before final git_diff")
+		return fmt.Errorf("completion blocked: final write must occur before final diff verification")
 
 	case lastDiff >= lastPass:
-		return fmt.Errorf("completion blocked: final git_diff must occur before final successful test")
+		return fmt.Errorf("completion blocked: final diff verification must occur before final successful test")
 
 	case lastTest != lastPass:
 		return fmt.Errorf("completion blocked: successful test must be the final test action")
@@ -479,6 +487,7 @@ func (a *Agent) validateCompletion() error {
 
 	return nil
 }
+
 func (a *Agent) buildActionLedger() string {
 	if len(a.ActionLedger) == 0 {
 		return "none"
@@ -805,6 +814,15 @@ func (a *Agent) saveState(task string, iteration int) error {
 		}
 	}
 
+	fmt.Println("[DEBUG SAVE STATE PROJECT INDEX]")
+	if a.ProjectIndex != nil {
+		for _, f := range a.ProjectIndex.Files {
+			if f.Path == "math.pl" {
+				fmt.Printf("[DEBUG SAVE math.pl] hash=%s size=%d\n", f.Hash, f.Size)
+			}
+		}
+	}
+
 	return saveTaskState(a.Root, state)
 }
 
@@ -1003,8 +1021,16 @@ func (a *Agent) Run(task string) error {
 		case StateVerifyDiff:
 			fmt.Println("[BRATAN GO] tool=git_diff")
 
-			result := a.Router.GitDiff(".")
-			a.recordAction(iteration, "git_diff", result.Output, result.Error, result.OK, result.Exit)
+			result := a.Router.SnapshotDiff(a.ProjectIndex)
+
+			a.recordAction(
+				iteration,
+				"git_diff",
+				result.Output,
+				result.Error,
+				result.OK,
+				result.Exit,
+			)
 
 			if !result.OK {
 				return fmt.Errorf(
@@ -1015,7 +1041,8 @@ func (a *Agent) Run(task string) error {
 
 			fmt.Print(result.Output)
 
-			a.DiffChecked = true
+			a.DiffChecked = result.Changed
+
 			a.History = append(
 				a.History,
 				"git_diff",
@@ -1025,6 +1052,12 @@ func (a *Agent) Run(task string) error {
 				"git_diff",
 				result.Output,
 			)
+
+			if !result.Changed {
+				return fmt.Errorf(
+					"VERIFY_DIFF failed: project has no changes",
+				)
+			}
 
 			a.State = StateTest
 
@@ -1260,6 +1293,13 @@ func (a *Agent) Run(task string) error {
 			}
 
 			a.ProjectIndex = index
+
+			fmt.Println("[DEBUG BASELINE CREATED]")
+			for _, f := range a.ProjectIndex.Files {
+				if f.Path == "math.pl" {
+					fmt.Printf("[DEBUG BASELINE math.pl] hash=%s size=%d\n", f.Hash, f.Size)
+				}
+			}
 			a.DependencyGraph = dependencygraph.Build(index)
 
 			fmt.Printf(
@@ -1488,15 +1528,18 @@ func (a *Agent) Run(task string) error {
 					continue
 				}
 
-				baseContent, ok := a.ReadFiles[path]
-				if !ok {
+				baseContent, hasSnapshot := a.ReadFiles[path]
+
+				baseHash := ""
+
+				if hasSnapshot {
+					baseHash = contentHash(baseContent)
+				} else if a.Router.Exists(path) {
 					return fmt.Errorf(
-						"write_file path %q has no trusted read snapshot",
+						"write_file path %q exists but has no trusted read snapshot",
 						path,
 					)
 				}
-
-				baseHash := contentHash(baseContent)
 
 				a.PendingAction = &PendingAction{
 					Tool:     "write_file",
@@ -1511,7 +1554,13 @@ func (a *Agent) Run(task string) error {
 					return err
 				}
 
-				result := a.Router.WriteWithBaseHash(path, content, baseHash)
+				var result tools.Result
+
+				if hasSnapshot {
+					result = a.Router.WriteWithBaseHash(path, content, baseHash)
+				} else {
+					result = a.Router.Write(path, content)
+				}
 				a.recordActionWithBaseHash(
 					iteration,
 					"write_file",
@@ -1613,15 +1662,18 @@ func (a *Agent) Run(task string) error {
 				continue
 			}
 
-			baseContent, ok := a.ReadFiles[path]
-			if !ok {
+			baseContent, hasSnapshot := a.ReadFiles[path]
+
+			baseHash := ""
+
+			if hasSnapshot {
+				baseHash = contentHash(baseContent)
+			} else if a.Router.Exists(path) {
 				return fmt.Errorf(
-					"write_file path %q has no trusted read snapshot",
+					"write_file path %q exists but has no trusted read snapshot",
 					path,
 				)
 			}
-
-			baseHash := contentHash(baseContent)
 
 			a.PendingAction = &PendingAction{
 				Tool:     "write_file",
@@ -1636,7 +1688,13 @@ func (a *Agent) Run(task string) error {
 				return err
 			}
 
-			result := a.Router.WriteWithBaseHash(path, content, baseHash)
+			var result tools.Result
+
+			if hasSnapshot {
+				result = a.Router.WriteWithBaseHash(path, content, baseHash)
+			} else {
+				result = a.Router.Write(path, content)
+			}
 			a.recordActionWithBaseHash(
 				iteration,
 				"write_file",

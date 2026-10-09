@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"bratan-go/internal/ollama"
+	"bratan-go/internal/projectindex"
 	"bratan-go/internal/tools"
 )
 
@@ -121,14 +122,22 @@ our @EXPORT_OK = qw(add);
 
 	/*
 		Simulate the state saved immediately after TEST FAILED.
+		The persisted ProjectIndex is the pre-task filesystem baseline
+		used by semantic change verification after restore.
 	*/
+	baseline, err := projectindex.Build(root)
+	if err != nil {
+		t.Fatalf("build baseline project index: %v", err)
+	}
+
 	first := &Agent{
-		Model:  "test-model",
-		Max:    20,
-		Root:   root,
-		Router: tools.New(root),
-		Ollama: ollama.New(server.URL),
-		State:  StateRepairRead,
+		Model:        "test-model",
+		Max:          20,
+		Root:         root,
+		Router:       tools.New(root),
+		Ollama:       ollama.New(server.URL),
+		State:        StateRepairRead,
+		ProjectIndex: baseline,
 
 		RepairPath:    "math.pl",
 		LastWritePath: "math.pl",

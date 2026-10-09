@@ -98,3 +98,80 @@ func TestProjectIndexPersistsThroughTaskState(t *testing.T) {
 		t.Fatalf("restored file hash mismatch")
 	}
 }
+
+func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing.T) {
+	root := t.TempDir()
+
+	original := "sub add { return 10; }\n1;\n"
+	changed := "sub add { return 11; }\n1;\n"
+
+	path := filepath.Join(root, "math.pl")
+
+	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	index, err := projectindex.Build(root)
+	if err != nil {
+		t.Fatalf("build baseline project index: %v", err)
+	}
+
+	originalHash := ""
+	for _, file := range index.Files {
+		if file.Path == "math.pl" {
+			originalHash = file.Hash
+			break
+		}
+	}
+
+	if originalHash == "" {
+		t.Fatal("math.pl missing from baseline project index")
+	}
+
+	agent := &Agent{
+		Root:         root,
+		State:        StateDiscover,
+		ProjectIndex: index,
+	}
+
+	task := "change math.pl"
+
+	if err := agent.saveState(task, 1); err != nil {
+		t.Fatalf("saveState failed: %v", err)
+	}
+
+	if err := os.WriteFile(path, []byte(changed), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved, ok, err := loadTaskState(root, task)
+	if err != nil {
+		t.Fatalf("loadTaskState failed: %v", err)
+	}
+
+	if !ok {
+		t.Fatal("expected persisted task state")
+	}
+
+	restored := &Agent{Root: root}
+	restored.restoreState(saved)
+
+	if restored.ProjectIndex == nil {
+		t.Fatal("ProjectIndex was not restored")
+	}
+
+	for _, file := range restored.ProjectIndex.Files {
+		if file.Path == "math.pl" {
+			if file.Hash != originalHash {
+				t.Fatalf(
+					"restored ProjectIndex changed after filesystem mutation: got hash %q, want baseline %q",
+					file.Hash,
+					originalHash,
+				)
+			}
+			return
+		}
+	}
+
+	t.Fatal("math.pl missing from restored ProjectIndex")
+}

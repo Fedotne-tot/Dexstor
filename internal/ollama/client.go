@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"time"
 )
@@ -60,7 +61,21 @@ func (c *Client) Generate(model, prompt string) (string, error) {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("ollama HTTP status: %s", resp.Status)
+		errorBody, readErr := io.ReadAll(resp.Body)
+
+		if readErr != nil {
+			return "", fmt.Errorf(
+				"ollama HTTP status: %s; failed to read response body: %v",
+				resp.Status,
+				readErr,
+			)
+		}
+
+		return "", fmt.Errorf(
+			"ollama HTTP status: %s; body: %s",
+			resp.Status,
+			string(errorBody),
+		)
 	}
 
 	var decoded response

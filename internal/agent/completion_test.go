@@ -504,3 +504,41 @@ func TestValidateCompletionRejectsRepairWriteAfterFinalDiff(t *testing.T) {
 		t.Fatal("expected completion to be rejected when repair_write occurs after final git_diff")
 	}
 }
+
+func TestValidateCompletionAcceptsEmptyGitDiffAfterSemanticVerification(t *testing.T) {
+	a := &Agent{
+		DiffChecked: true,
+		ActionLedger: []ActionRecord{
+			completionAction(
+				1,
+				"inspect_project",
+				"files=2",
+			),
+			completionAction(
+				2,
+				"write_file",
+				"write completed",
+				"math.pl",
+				"return 10;\n",
+			),
+			completionAction(
+				3,
+				"git_diff",
+				"",
+			),
+			completionAction(
+				4,
+				"test",
+				"PASS",
+				"test.pl",
+			),
+		},
+	}
+
+	if err := a.validateCompletion(); err != nil {
+		t.Fatalf(
+			"completion should accept empty git_diff when semantic change verification succeeded: %v",
+			err,
+		)
+	}
+}

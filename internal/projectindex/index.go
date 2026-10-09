@@ -70,7 +70,7 @@ func Build(root string) (*Index, error) {
 			return walkErr
 		}
 
-		if entry.IsDir() && entry.Name() == ".git" {
+		if entry.IsDir() && (entry.Name() == ".git" || entry.Name() == ".ai" || entry.Name() == "target") {
 			return filepath.SkipDir
 		}
 

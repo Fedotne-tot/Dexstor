@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"encoding/json"
 	"regexp"
 	"strings"
 )
@@ -78,11 +79,30 @@ func Parse(text string) (ToolCall, bool) {
 
 			// The newline immediately before END_TOOL_CALL is a
 			// protocol separator, not part of the file content.
-			if len(contentLines) > 0 && contentLines[len(contentLines)-1] == "" {
+			if len(contentLines) > 0 &&
+				contentLines[len(contentLines)-1] == "" {
 				contentLines = contentLines[:len(contentLines)-1]
 			}
 
-			call.Args["content"] = strings.Join(contentLines, "\n")
+			content := strings.Join(contentLines, "\n")
+
+			// Models may emit content as a JSON-style quoted string:
+			// content: "<!DOCTYPE html>\n<html>..."
+			// Decode that form while preserving the existing
+			// literal multiline content protocol.
+			if strings.HasPrefix(content, `"`) &&
+				strings.HasSuffix(content, `"`) {
+				var decoded string
+				if err := json.Unmarshal(
+					[]byte(content),
+					&decoded,
+				); err != nil {
+					return ToolCall{}, false
+				}
+				content = decoded
+			}
+
+			call.Args["content"] = content
 			break
 		}
 	}

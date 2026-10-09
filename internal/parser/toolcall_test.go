@@ -168,3 +168,29 @@ END_TOOL_CALL`
 		t.Fatal("expected multiple TOOL_CALL blocks to be rejected")
 	}
 }
+
+func TestParseWriteFileQuotedEscapedContent(t *testing.T) {
+	text := `TOOL_CALL
+name: write_file
+path: index.html
+content: "<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<title>Test</title>\n</head>\n<body>\n<h1>Hello</h1>\n</body>\n</html>"`
+
+	call, ok := Parse(text)
+	if !ok {
+		t.Fatal("expected TOOL_CALL to parse")
+	}
+
+	want := `<!DOCTYPE html>
+<html lang="en">
+<head>
+<title>Test</title>
+</head>
+<body>
+<h1>Hello</h1>
+</body>
+</html>`
+
+	if got := call.Args["content"]; got != want {
+		t.Fatalf("content mismatch:\n--- got ---\n%q\n--- want ---\n%q", got, want)
+	}
+}

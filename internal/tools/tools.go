@@ -20,6 +20,7 @@ type Result struct {
 	Status  string
 	Exit    int
 	Tree    string
+	Changed bool
 }
 
 type Router struct {
@@ -39,6 +40,16 @@ func New(root string) *Router {
 			"test.pl": true,
 		},
 	}
+}
+
+func (r *Router) Exists(path string) bool {
+	abs, err := r.safePath(path)
+	if err != nil {
+		return false
+	}
+
+	_, err = os.Stat(abs)
+	return err == nil
 }
 
 func (r *Router) safePath(path string) (string, error) {
