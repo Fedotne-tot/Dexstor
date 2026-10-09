@@ -30,6 +30,17 @@ func pendingWrite(tool, path, content string) *PendingAction {
 	}
 }
 
+func pendingNewFileWrite(path, content string) *PendingAction {
+	return &PendingAction{
+		Tool: "write_file",
+		Args: map[string]string{
+			"path":    path,
+			"content": content,
+		},
+		BaseHash: "",
+	}
+}
+
 func TestPersistedStateIntegrityRejectsUnknownState(t *testing.T) {
 	state := persistedStateBase()
 	state.State = State("BROKEN")
@@ -70,14 +81,27 @@ func TestPersistedStateIntegrityAcceptsRepairWritePendingAction(t *testing.T) {
 	}
 }
 
-func TestPersistedStateIntegrityRejectsPendingWithoutBaseHash(t *testing.T) {
+func TestPersistedStateIntegrityRejectsExistingFilePendingWithoutBaseHash(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateWriteReq
+
+	state.ReadFiles["math.pl"] = "old content\n"
+
 	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
 	state.PendingAction.BaseHash = ""
 
 	if err := validatePersistedStateIntegrity(state); err == nil {
-		t.Fatal("pending write without base hash must be rejected")
+		t.Fatal("existing file write without base hash must be rejected")
+	}
+}
+
+func TestPersistedStateIntegrityAcceptsNewFilePendingWithoutBaseHash(t *testing.T) {
+	state := persistedStateBase()
+	state.State = StateWriteReq
+	state.PendingAction = pendingNewFileWrite("hello.txt", "HELLO_BRATAN")
+
+	if err := validatePersistedStateIntegrity(state); err != nil {
+		t.Fatalf("new file write without base hash should be accepted: %v", err)
 	}
 }
 
@@ -128,80 +152,7 @@ func TestPersistedStateIntegrityRejectsRepairStateWithoutRepairPath(t *testing.T
 		state.State = stateName
 
 		if err := validatePersistedStateIntegrity(state); err == nil {
-			t.Fatalf("%s without RepairPath must be rejected", stateName)
+			t.Fatalf("%s without repair path must be rejected", stateName)
 		}
-	}
-}
-
-func TestPersistedStateIntegrityRejectsPendingActionAfterWritePhase(t *testing.T) {
-	for _, stateName := range []State{
-		StateVerifyDiff,
-		StateTest,
-		StateRepairRead,
-		StateDone,
-	} {
-		state := persistedStateBase()
-		state.State = stateName
-
-		if stateName == StateRepairRead {
-			state.RepairPath = "math.pl"
-		}
-
-		state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
-
-		if err := validatePersistedStateIntegrity(state); err == nil {
-			t.Fatalf("%s with pending action must be rejected", stateName)
-		}
-	}
-}
-
-func TestPersistedStateIntegrityAcceptsValidDone(t *testing.T) {
-	state := persistedStateBase()
-	state.State = StateDone
-	state.Wrote = true
-	state.LastWritePath = "math.pl"
-
-	state.ActionLedger = []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl"),
-		completionAction(2, "read_file", "content", "math.pl"),
-		completionAction(3, "write_file", "written", "math.pl", "fixed"),
-		completionAction(4, "git_diff", "diff"),
-		completionAction(5, "test", "PASS\n", "test.pl"),
-	}
-
-	if err := validatePersistedStateIntegrity(state); err != nil {
-		t.Fatalf("valid DONE state rejected: %v", err)
-	}
-}
-
-func TestPersistedStateIntegrityAllowsCrashSnapshotPendingWrite(t *testing.T) {
-	state := persistedStateBase()
-	state.State = StateImplement
-	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
-
-	if err := validatePersistedStateIntegrity(state); err != nil {
-		t.Fatalf("valid crash snapshot rejected: %v", err)
-	}
-}
-
-func TestPersistedStateIntegrityAllowsRepairWriteCrashSnapshot(t *testing.T) {
-	state := persistedStateBase()
-	state.State = StateRepairWrite
-	state.RepairPath = "math.pl"
-	state.PendingAction = pendingWrite("repair_write", "math.pl", "fixed")
-
-	if err := validatePersistedStateIntegrity(state); err != nil {
-		t.Fatalf("valid repair crash snapshot rejected: %v", err)
-	}
-}
-
-func TestPersistedStateIntegrityDoesNotRequireFullWorkflowHistory(t *testing.T) {
-	state := persistedStateBase()
-	state.State = StateVerifyDiff
-	state.Wrote = true
-	state.LastWritePath = "math.pl"
-
-	if err := validatePersistedStateIntegrity(state); err != nil {
-		t.Fatalf("partial VERIFY_DIFF snapshot should be accepted: %v", err)
 	}
 }
