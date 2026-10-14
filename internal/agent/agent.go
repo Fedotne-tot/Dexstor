@@ -187,6 +187,22 @@ func (a *Agent) prompt(task string) string {
 		b.WriteString("\n\n")
 	}
 
+	// Language-neutral test-file hint. The prompt must not hard-wire a
+	// specific test file name (historically "test.pl"): the controller
+	// resolves the detected test file itself, and the wording below only
+	// informs the model which kinds of project test files exist.
+	b.WriteString("PROJECT TEST FILE:\n")
+	b.WriteString("The controller runs the detected test file for this project automatically during the TEST phase.\n")
+	b.WriteString("Do not assume a fixed test file name; use the file listed in PROJECT INDEX or FILES ALREADY READ.\n")
+
+	if _, err := os.Stat(filepath.Join(a.Root, "test.pl")); err == nil {
+		// Perl projects keep their concrete example so existing fixtures
+		// and prompts remain valid.
+		b.WriteString("Recognized project test file: test.pl (Perl).\n\n")
+	} else {
+		b.WriteString("Examples of recognized project test files by language: Perl -> *.pl, Go -> *_test.go.\n\n")
+	}
+
 	switch a.State {
 	case StateDiscover:
 		b.WriteString(
@@ -1061,7 +1077,7 @@ func (a *Agent) Run(task string) error {
 		case StateTest:
 			fmt.Println("[BRATAN GO] tool=test")
 
-			path := "test.pl"
+			path := a.detectTestFile()
 			if _, err := os.Stat(filepath.Join(a.Root, path)); os.IsNotExist(err) {
 				path = a.LastWritePath
 			}
@@ -1874,6 +1890,40 @@ func (a *Agent) Run(task string) error {
 	)
 }
 
+// detectTestFile resolves which project test file the TEST phase should
+// run. It removes the hard-wired "test.pl" assumption from the agent:
+//   - Perl projects keep working exactly as before (test.pl is still the
+//     first candidate, so existing fixtures are untouched);
+//   - Go projects are detected via *_test.go at the project root;
+//   - when nothing is detected, the caller falls back to LastWritePath.
+//
+// This helper only selects a path; it does not change FSM transitions,
+// ledger format, Router routing, or protected-file logic.
+func (a *Agent) detectTestFile() string {
+	// Compatibility fallback preserved verbatim for Perl fixtures.
+	if _, err := os.Stat(filepath.Join(a.Root, "test.pl")); err == nil {
+		return "test.pl"
+	}
+
+	entries, err := os.ReadDir(a.Root)
+	if err != nil {
+		return "test.pl"
+	}
+
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+
+		name := e.Name()
+		if strings.HasSuffix(name, "_test.go") {
+			return name
+		}
+	}
+
+	return "test.pl"
+}
+
 func (a *Agent) failedSourcePath(output string) string {
 	/*
 		Examples:
@@ -1903,6 +1953,17 @@ func (a *Agent) failedSourcePath(output string) string {
 		path := strings.TrimPrefix(matches[1], "./")
 
 		/*
+			Go failures name *_test.go files; the file to repair is the
+			sibling source (foo_test.go -> foo.go). Perl resolution never
+			enters this branch.
+		*/
+		if strings.HasSuffix(path, "_test.go") {
+			if target := a.resolveGoRepairTarget(path); target != "" {
+				return target
+			}
+		}
+
+		/*
 			If the failing test file is known by the dependency graph,
 			repair the source file it depends on.
 		*/
@@ -1923,6 +1984,37 @@ func (a *Agent) failedSourcePath(output string) string {
 	*/
 	if a.LastWritePath != "" {
 		return a.LastWritePath
+	}
+
+	return ""
+}
+
+/*
+resolveGoRepairTarget maps a failing Go test file (foo_test.go) to its
+sibling source file (foo.go). The sibling is considered present when it
+is listed in the ProjectIndex or exists on disk under the project root.
+Returns "" when no sibling source exists, so callers keep the previous
+behavior (repair the *_test.go itself).
+*/
+func (a *Agent) resolveGoRepairTarget(testPath string) string {
+	source := strings.TrimSuffix(testPath, "_test.go") + ".go"
+
+	if source == ".go" || filepath.Base(source) == ".go" {
+		return ""
+	}
+
+	if a.ProjectIndex != nil {
+		for _, file := range a.ProjectIndex.Files {
+			if filepath.ToSlash(file.Path) == filepath.ToSlash(source) {
+				return source
+			}
+		}
+	}
+
+	if a.Root != "" {
+		if _, err := os.Stat(filepath.Join(a.Root, filepath.Clean(source))); err == nil {
+			return source
+		}
 	}
 
 	return ""
