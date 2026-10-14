@@ -1953,6 +1953,17 @@ func (a *Agent) failedSourcePath(output string) string {
 		path := strings.TrimPrefix(matches[1], "./")
 
 		/*
+			Go failures name *_test.go files; the file to repair is the
+			sibling source (foo_test.go -> foo.go). Perl resolution never
+			enters this branch.
+		*/
+		if strings.HasSuffix(path, "_test.go") {
+			if target := a.resolveGoRepairTarget(path); target != "" {
+				return target
+			}
+		}
+
+		/*
 			If the failing test file is known by the dependency graph,
 			repair the source file it depends on.
 		*/
@@ -1973,6 +1984,37 @@ func (a *Agent) failedSourcePath(output string) string {
 	*/
 	if a.LastWritePath != "" {
 		return a.LastWritePath
+	}
+
+	return ""
+}
+
+/*
+resolveGoRepairTarget maps a failing Go test file (foo_test.go) to its
+sibling source file (foo.go). The sibling is considered present when it
+is listed in the ProjectIndex or exists on disk under the project root.
+Returns "" when no sibling source exists, so callers keep the previous
+behavior (repair the *_test.go itself).
+*/
+func (a *Agent) resolveGoRepairTarget(testPath string) string {
+	source := strings.TrimSuffix(testPath, "_test.go") + ".go"
+
+	if source == ".go" || filepath.Base(source) == ".go" {
+		return ""
+	}
+
+	if a.ProjectIndex != nil {
+		for _, file := range a.ProjectIndex.Files {
+			if filepath.ToSlash(file.Path) == filepath.ToSlash(source) {
+				return source
+			}
+		}
+	}
+
+	if a.Root != "" {
+		if _, err := os.Stat(filepath.Join(a.Root, filepath.Clean(source))); err == nil {
+			return source
+		}
 	}
 
 	return ""
