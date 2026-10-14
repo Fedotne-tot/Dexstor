@@ -814,15 +814,6 @@ func (a *Agent) saveState(task string, iteration int) error {
 		}
 	}
 
-	fmt.Println("[DEBUG SAVE STATE PROJECT INDEX]")
-	if a.ProjectIndex != nil {
-		for _, f := range a.ProjectIndex.Files {
-			if f.Path == "math.pl" {
-				fmt.Printf("[DEBUG SAVE math.pl] hash=%s size=%d\n", f.Hash, f.Size)
-			}
-		}
-	}
-
 	return saveTaskState(a.Root, state)
 }
 
@@ -1308,12 +1299,6 @@ func (a *Agent) Run(task string) error {
 
 			a.ProjectIndex = index
 
-			fmt.Println("[DEBUG BASELINE CREATED]")
-			for _, f := range a.ProjectIndex.Files {
-				if f.Path == "math.pl" {
-					fmt.Printf("[DEBUG BASELINE math.pl] hash=%s size=%d\n", f.Hash, f.Size)
-				}
-			}
 			a.DependencyGraph = dependencygraph.Build(index)
 
 			fmt.Printf(

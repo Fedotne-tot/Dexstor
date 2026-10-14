@@ -29,20 +29,6 @@ func (r *Router) SnapshotDiff(baseline *projectindex.Index) Result {
 		}
 	}
 
-	fmt.Println("[DEBUG SNAPSHOT CURRENT]")
-	for _, f := range current.Files {
-		if f.Path == "math.pl" {
-			fmt.Printf("[DEBUG CURRENT math.pl] hash=%s size=%d\\n", f.Hash, f.Size)
-		}
-	}
-
-	fmt.Println("[DEBUG SNAPSHOT BASELINE]")
-	for _, f := range baseline.Files {
-		if f.Path == "math.pl" {
-			fmt.Printf("[DEBUG BASELINE SNAPSHOT math.pl] hash=%s size=%d\\n", f.Hash, f.Size)
-		}
-	}
-
 	diff := projectindex.Diff(baseline, current)
 
 	var output strings.Builder
