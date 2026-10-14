@@ -552,6 +552,65 @@ func (r *Router) AssertOutput(command, expected string) Result {
 	return result
 }
 
+// testRunner executes a single test file and returns the shared test
+// Result contract (Status PASS/FAIL, Output, Exit). Runners are selected by
+// Router.Test through a deterministic dispatch table; each runner owns only
+// command construction, so adding a language never touches the FSM or the
+// ledger layer.
+type testRunner interface {
+	Run(abs string) *exec.Cmd
+}
+
+// perlTestRunner runs .pl files exactly as before PR-1: `perl <abs>`.
+type perlTestRunner struct{}
+
+func (perlTestRunner) Run(abs string) *exec.Cmd { return exec.Command("perl", abs) }
+
+// goTestRunner runs Go package tests for *_test.go files via `go test ./...`.
+// It is additive: it only claims paths ending in _test.go and does not alter
+// any existing Perl behaviour.
+type goTestRunner struct{}
+
+func (goTestRunner) Run(abs string) *exec.Cmd { return exec.Command("go", "test", "./...") }
+
+// selectTestRunner maps a validated absolute path to its runner. The switch
+// preserves the pre-PR-1 extension routing verbatim (.pl/.js/.py/.go) and
+// adds one new case: *_test.go -> goTestRunner.
+func selectTestRunner(abs string) (testRunner, bool) {
+	switch filepath.Ext(abs) {
+	case ".pl":
+		return perlTestRunner{}, true
+
+	case ".js":
+		return scriptCommand{"node"}, true
+
+	case ".py":
+		return scriptCommand{"python3"}, true
+
+	case ".go":
+		if strings.HasSuffix(abs, "_test.go") {
+			return goTestRunner{}, true
+		}
+		return scriptCommand{"go run"}, true
+
+	default:
+		return nil, false
+	}
+}
+
+// scriptCommand adapts plain interpreter invocations to the testRunner
+// interface without changing their argv.
+type scriptCommand struct {
+	base string
+}
+
+func (s scriptCommand) Run(abs string) *exec.Cmd {
+	if s.base == "go run" {
+		return exec.Command("go", "run", abs)
+	}
+	return exec.Command(s.base, abs)
+}
+
 func (r *Router) Test(path string) Result {
 	abs, err := r.safePath(path)
 	if err != nil {
@@ -564,22 +623,8 @@ func (r *Router) Test(path string) Result {
 		}
 	}
 
-	var cmd *exec.Cmd
-
-	switch filepath.Ext(abs) {
-	case ".pl":
-		cmd = exec.Command("perl", abs)
-
-	case ".js":
-		cmd = exec.Command("node", abs)
-
-	case ".py":
-		cmd = exec.Command("python3", abs)
-
-	case ".go":
-		cmd = exec.Command("go", "run", abs)
-
-	default:
+	runner, ok := selectTestRunner(abs)
+	if !ok {
 		return Result{
 			Tool:   "test",
 			Path:   path,
@@ -589,6 +634,7 @@ func (r *Router) Test(path string) Result {
 		}
 	}
 
+	cmd := runner.Run(abs)
 	cmd.Dir = r.Root
 
 	out, err := cmd.CombinedOutput()

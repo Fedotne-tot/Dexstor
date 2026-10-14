@@ -1880,10 +1880,24 @@ func (a *Agent) failedSourcePath(output string) string {
 		  ./math.pl did not return a true value at ...
 		  math.pl: ...
 		  ./src/foo.pl: ...
+		  math_test.go:42: expected 10, got 5   (go test output)
 	*/
 	re := regexp.MustCompile(`(?:^|\s)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.pl)(?:\s|:|$)`)
 
 	matches := re.FindStringSubmatch(output)
+
+	if len(matches) < 2 {
+		/*
+			Go test failures name *_test.go files with a line number, e.g.
+			  math_test.go:42: Wrong: 5
+			The Perl pattern above never matches ".go", so this fallback
+			only fires when no .pl path was found — existing behavior for
+			Perl output is untouched.
+		*/
+		goRe := regexp.MustCompile(`(?:^|\s)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*_test\.go):\d+:`)
+
+		matches = goRe.FindStringSubmatch(output)
+	}
 
 	if len(matches) > 1 {
 		path := strings.TrimPrefix(matches[1], "./")

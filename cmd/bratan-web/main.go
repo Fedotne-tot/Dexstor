@@ -34,15 +34,21 @@ type RunRequest struct {
 }
 
 type Server struct {
-	cfg Config
-	mu  sync.Mutex
+	cfg     Config
+	mu      sync.Mutex
+	taskTTL time.Duration
 }
+
+// maxRequestBodyBytes limits the size of an incoming JSON request body.
+const maxRequestBodyBytes = 1 << 20 // 1 MB
 
 func main() {
 	model := flag.String("model", "qwen3:8b", "Ollama model")
 	project := flag.String("project", ".", "Project directory")
 	max := flag.Int("max-iterations", 15, "Maximum iterations")
 	port := flag.Int("port", 8787, "HTTP port")
+	host := flag.String("host", "127.0.0.1", "HTTP bind host (loopback by default)")
+	taskTimeout := flag.Duration("task-timeout", 30*time.Minute, "Maximum duration of a single agent task")
 	flag.Parse()
 
 	exe, err := os.Executable()
@@ -66,16 +72,17 @@ func main() {
 			MaxIterations: *max,
 			BratanBinary:  bratan,
 		},
+		taskTTL: *taskTimeout,
 	}
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", s.index)
 	mux.HandleFunc("/run", s.run)
 
-	addr := ":" + strconv.Itoa(*port)
+	addr := *host + ":" + strconv.Itoa(*port)
 
 	fmt.Println("[BRATAN WEB] starting")
-	fmt.Println("[BRATAN WEB] address: http://127.0.0.1" + addr)
+	fmt.Println("[BRATAN WEB] address: http://" + addr)
 	fmt.Println("[BRATAN WEB] model:", *model)
 	fmt.Println("[BRATAN WEB] project:", *project)
 
@@ -122,6 +129,8 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 
 	var req RunRequest
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "invalid JSON: "+err.Error(), http.StatusBadRequest)
 		return
@@ -149,6 +158,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ctx := r.Context()
+	if s.taskTTL > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, s.taskTTL)
+		defer cancel()
+	}
 
 	args := []string{
 		"-project", s.cfg.Project,
@@ -224,6 +238,11 @@ func (s *Server) run(w http.ResponseWriter, r *http.Request) {
 	}
 
 	flusher.Flush()
+}
+
+// newServer builds a Server for tests without touching main()'s flag parsing.
+func newServer(cfg Config, taskTTL time.Duration) *Server {
+	return &Server{cfg: cfg, taskTTL: taskTTL}
 }
 
 func isExitError(err error, target **exec.ExitError) bool {
