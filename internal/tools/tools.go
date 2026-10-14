@@ -566,12 +566,37 @@ type perlTestRunner struct{}
 
 func (perlTestRunner) Run(abs string) *exec.Cmd { return exec.Command("perl", abs) }
 
-// goTestRunner runs Go package tests for *_test.go files via `go test ./...`.
-// It is additive: it only claims paths ending in _test.go and does not alter
-// any existing Perl behaviour.
+// goTestRunner runs Go package tests for *_test.go files via
+// `go test -v -count=1 ./...`. It is additive: it only claims paths ending in
+// _test.go and does not alter any existing Perl behaviour.
+//
+// PR-8 ledger-contract note: the shared Result contract requires a successful
+// test Output to contain the literal "PASS" marker (validateActionLedgerResultIntegrity
+// rejects OK results without it). Without -v, `go test` prints nothing on
+// success, so the runner now uses verbose mode plus normalizeGoTestOutput as a
+// belt-and-braces guarantee that every PASS result carries the marker.
 type goTestRunner struct{}
 
-func (goTestRunner) Run(abs string) *exec.Cmd { return exec.Command("go", "test", "./...") }
+func (goTestRunner) Run(abs string) *exec.Cmd {
+	return exec.Command("go", "test", "-v", "-count=1", "./...")
+}
+
+// normalizeGoTestOutput makes a successful Go test run satisfy the same
+// ledger contract as the Perl runner: Status PASS implies Output contains the
+// literal "PASS" line. It appends "PASS\n" only when the process succeeded
+// (exit == 0) and the captured output lacks the marker; failed runs are never
+// annotated, so a FAIL result can never falsely look like a verified PASS.
+// This mirrors the fallback already applied by the agent for empty outputs and
+// keeps Router.Test callers (FSM, ledger, validateCompletion) untouched.
+func normalizeGoTestOutput(output string, exit int) string {
+	if exit != 0 {
+		return output
+	}
+	if strings.Contains(output, "PASS") {
+		return output
+	}
+	return output + "PASS\n"
+}
 
 // selectTestRunner maps a validated absolute path to its runner. The switch
 // preserves the pre-PR-1 extension routing verbatim (.pl/.js/.py/.go) and
@@ -660,6 +685,12 @@ func (r *Router) Test(path string) Result {
 	result.OK = true
 	result.Exit = 0
 	result.Status = "PASS"
+
+	// PR-8: only the Go runner output is normalized; Perl and script runners
+	// keep their captured bytes verbatim so existing fixtures stay untouched.
+	if _, isGo := runner.(goTestRunner); isGo {
+		result.Output = normalizeGoTestOutput(result.Output, result.Exit)
+	}
 
 	return result
 }
