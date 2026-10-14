@@ -598,9 +598,41 @@ func normalizeGoTestOutput(output string, exit int) string {
 	return output + "PASS\n"
 }
 
+// hasSiblingGoTest reports whether directory dir contains at least one
+// *_test.go file. It is used to route plain .go files through goTestRunner
+// instead of "go run" when they belong to a package that carries tests.
+// A missing or unreadable directory yields false, preserving the previous
+// behavior for standalone Go files.
+func hasSiblingGoTest(dir string) bool {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return false
+	}
+
+	for _, entry := range entries {
+		if entry.IsDir() {
+			continue
+		}
+
+		name := entry.Name()
+		if strings.HasSuffix(name, "_test.go") {
+			return true
+		}
+	}
+
+	return false
+}
+
 // selectTestRunner maps a validated absolute path to its runner. The switch
 // preserves the pre-PR-1 extension routing verbatim (.pl/.js/.py/.go) and
-// adds one new case: *_test.go -> goTestRunner.
+// adds two Go cases:
+//   - *_test.go             -> goTestRunner
+//   - *.go with a sibling
+//     *_test.go in the same -> goTestRunner (the source file is not a main
+//     package; "go run" on it always fails with "not a main package", so the
+//     package test suite is the correct runner here)
+//
+// Standalone .go files without sibling tests keep the old "go run" behavior.
 func selectTestRunner(abs string) (testRunner, bool) {
 	switch filepath.Ext(abs) {
 	case ".pl":
@@ -616,6 +648,11 @@ func selectTestRunner(abs string) (testRunner, bool) {
 		if strings.HasSuffix(abs, "_test.go") {
 			return goTestRunner{}, true
 		}
+
+		if hasSiblingGoTest(filepath.Dir(abs)) {
+			return goTestRunner{}, true
+		}
+
 		return scriptCommand{"go run"}, true
 
 	default:
