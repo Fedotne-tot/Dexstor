@@ -1076,7 +1076,21 @@ func (a *Agent) Run(task string) error {
 			}
 
 			result := a.Router.Test(path)
-			a.recordAction(iteration, "test", result.Status, result.Error, result.OK, result.Exit, path)
+
+			/*
+				The ledger must record the actual test output, not only
+				the coarse PASS/FAIL status. Completion validators look
+				for "PASS" inside Result and repair heuristics scan the
+				same field for failure markers such as "WRONG:". Recording
+				combined command output keeps both checks working while
+				preserving full diagnostics for resumed runs and audits.
+			*/
+			testLedgerResult := result.Output
+			if testLedgerResult == "" {
+				testLedgerResult = result.Status
+			}
+
+			a.recordAction(iteration, "test", testLedgerResult, result.Error, result.OK, result.Exit, path)
 
 			if result.Output != "" {
 				fmt.Print(result.Output)
