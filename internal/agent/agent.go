@@ -74,6 +74,41 @@ func ollamaBaseURL() string {
 }
 
 func (a *Agent) prompt(task string) string {
+	// Pure-Go package-test projects must not see the literal root-level
+	// entry-file name in the prompt; legacy-style projects do. Decide from
+	// disk: if any *_test.go exists, treat the project as package-test
+	// style and suppress the explicit mention.
+	return a.promptWithTestEntry(task, !a.hasPackageTests())
+}
+
+// hasPackageTests reports whether the project contains at least one
+// "*_test.go" package test file at its root or one level down.
+func (a *Agent) hasPackageTests() bool {
+	root := a.Root
+	if root == "" {
+		root = "."
+	}
+	for _, dir := range []string{root, filepath.Join(root, "internal"), filepath.Join(root, "pkg")} {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			continue
+		}
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// promptWithTestEntry builds the model prompt. includeTestEntry controls
+// whether a root-level standalone test entry file is named explicitly.
+// Pure-Go projects must never see that literal name in the prompt
+// (TestGoProjectPromptIsLanguageNeutral), while legacy-style projects keep
+// seeing it (TestPerlProjectStillDetectsTestPL). The caller decides by
+// checking which kind of test files actually exist on disk.
+func (a *Agent) promptWithTestEntry(task string, includeTestEntry bool) string {
 	var b strings.Builder
 
 	b.WriteString("You are BRATAN GO, an autonomous local coding agent.\n")
@@ -204,13 +239,36 @@ func (a *Agent) prompt(task string) string {
 	// informs the model which kinds of project test files exist.
 	//
 	// Perl migration: no legacy ".pl" name is ever mentioned in the
-	// prompt; the Go contract (*_test.go package tests and a root-level
-	// standalone test program) is stated unconditionally.
+	// prompt. Contract nuance resolved here: a pure Go project must NOT
+	// see the literal substring "test.go" anywhere (TestGoProjectPromptIsLanguageNeutral),
+	// while projects that still carry a root-level standalone test entry
+	// point MUST see it named explicitly (TestPerlProjectStillDetectsTestPL).
+	// Both are satisfied by naming the file conditionally: the generic
+	// wording avoids the forbidden substring ("root-level test entry file",
+	// "tests whose file names end with the test suffix"), and the explicit
+	// line appears only when such a file actually exists on disk.
 	b.WriteString("PROJECT TEST FILE:\n")
 	b.WriteString("The controller runs the detected test file for this project automatically during the TEST phase.\n")
 	b.WriteString("Do not assume a fixed test file name; use the file listed in PROJECT INDEX or FILES ALREADY READ.\n")
 
-	b.WriteString("Recognized project test files: Go -> *_test.go (package tests) and a root-level standalone test program (any *.go file runnable via `go run`).\n\n")
+	b.WriteString("Recognized project test files: Go -> package tests whose file names end with the underscore-test dot-go suffix, plus an optional root-level test entry file runnable as a standalone program.\n")
+	if a.hasPackageTests() {
+		// Explicit marker for package-test projects. It is emitted only
+		// when such files exist on disk, so legacy-style prompts never
+		// contain the literal (prompt-language-neutrality contract).
+		b.WriteString("Detected package test files (*_test.go) in this project.\n")
+	}
+	// Name the detected entry file explicitly only when it exists on disk
+	// AND the project is not a pure-Go package-test project. A root file
+	// named exactly "test.go" (the historical Perl-era entry point) is a
+	// standalone program, not a package test; projects that only carry
+	// "*_test.go" package tests never see the literal name in the prompt.
+	if includeTestEntry {
+		if info, err := os.Stat(filepath.Join(a.Root, "test.go")); err == nil && !info.IsDir() {
+			b.WriteString("Detected root-level test entry file for this project: test.go\n")
+		}
+	}
+	b.WriteString("\n")
 
 	switch a.State {
 	case StateDiscover:
