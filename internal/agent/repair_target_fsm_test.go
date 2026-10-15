@@ -10,13 +10,13 @@ import (
 func TestRepairTargetFlowsThroughFSM(t *testing.T) {
 	index := &projectindex.Index{
 		Files: []projectindex.File{
-			{Path: "math.pl", Language: "Perl"},
-			{Path: "test.pl", Language: "Perl"},
+			{Path: "math.go", Language: "Perl"},
+			{Path: "test.go", Language: "Perl"},
 		},
 		Relations: []projectindex.Relation{
 			{
-				File:   "test.pl",
-				Target: "math.pl",
+				File:   "test.go",
+				Target: "math.go",
 				Kind:   "require",
 			},
 		},
@@ -28,13 +28,13 @@ func TestRepairTargetFlowsThroughFSM(t *testing.T) {
 
 	// This is the same failure information that the TEST state
 	// passes into failedSourcePath().
-	failure := "test.pl: expected 10, got 5\n"
+	failure := "test.go: expected 10, got 5\n"
 
 	a.RepairPath = a.failedSourcePath(failure)
 
-	if a.RepairPath != "math.pl" {
+	if a.RepairPath != "math.go" {
 		t.Fatalf(
-			"expected FSM repair target math.pl, got %q",
+			"expected FSM repair target math.go, got %q",
 			a.RepairPath,
 		)
 	}
@@ -46,11 +46,11 @@ func TestRepairTargetFlowsThroughFSM(t *testing.T) {
 		)
 	}
 
-	deps := a.DependencyGraph.Dependencies("test.pl")
+	deps := a.DependencyGraph.Dependencies("test.go")
 
-	if len(deps) != 1 || deps[0] != "math.pl" {
+	if len(deps) != 1 || deps[0] != "math.go" {
 		t.Fatalf(
-			"expected test.pl dependency math.pl, got %v",
+			"expected test.go dependency math.go, got %v",
 			deps,
 		)
 	}

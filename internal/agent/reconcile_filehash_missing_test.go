@@ -9,7 +9,7 @@ import (
 func TestReconcileFileHashMissingFileIsStale(t *testing.T) {
 	root := t.TempDir()
 
-	existingPath := filepath.Join(root, "math.pl")
+	existingPath := filepath.Join(root, "math.go")
 	if err := os.WriteFile(
 		existingPath,
 		[]byte("EXPECTED\n"),
@@ -24,7 +24,7 @@ func TestReconcileFileHashMissingFileIsStale(t *testing.T) {
 		Project:   root,
 		ReadFiles: make(map[string]string),
 		FileHashes: map[string]string{
-			"math.pl": contentHash("EXPECTED\n"),
+			"math.go": contentHash("EXPECTED\n"),
 			"missing.pl": contentHash(
 				"EXPECTED MISSING\n",
 			),

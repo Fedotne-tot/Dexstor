@@ -53,7 +53,7 @@ func TestPersistedStateIntegrityRejectsUnknownState(t *testing.T) {
 func TestPersistedStateIntegrityAcceptsImplementPendingWrite(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateImplement
-	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
+	state.PendingAction = pendingWrite("write_file", "math.go", "fixed")
 
 	if err := validatePersistedStateIntegrity(state); err != nil {
 		t.Fatalf("IMPLEMENT pending write should be accepted: %v", err)
@@ -63,7 +63,7 @@ func TestPersistedStateIntegrityAcceptsImplementPendingWrite(t *testing.T) {
 func TestPersistedStateIntegrityAcceptsWriteRequiredPendingWrite(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateWriteReq
-	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
+	state.PendingAction = pendingWrite("write_file", "math.go", "fixed")
 
 	if err := validatePersistedStateIntegrity(state); err != nil {
 		t.Fatalf("WRITE_REQUIRED pending write should be accepted: %v", err)
@@ -73,8 +73,8 @@ func TestPersistedStateIntegrityAcceptsWriteRequiredPendingWrite(t *testing.T) {
 func TestPersistedStateIntegrityAcceptsRepairWritePendingAction(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateRepairWrite
-	state.RepairPath = "math.pl"
-	state.PendingAction = pendingWrite("repair_write", "math.pl", "fixed")
+	state.RepairPath = "math.go"
+	state.PendingAction = pendingWrite("repair_write", "math.go", "fixed")
 
 	if err := validatePersistedStateIntegrity(state); err != nil {
 		t.Fatalf("REPAIR_WRITE pending action should be accepted: %v", err)
@@ -85,9 +85,9 @@ func TestPersistedStateIntegrityRejectsExistingFilePendingWithoutBaseHash(t *tes
 	state := persistedStateBase()
 	state.State = StateWriteReq
 
-	state.ReadFiles["math.pl"] = "old content\n"
+	state.ReadFiles["math.go"] = "old content\n"
 
-	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
+	state.PendingAction = pendingWrite("write_file", "math.go", "fixed")
 	state.PendingAction.BaseHash = ""
 
 	if err := validatePersistedStateIntegrity(state); err == nil {
@@ -108,8 +108,8 @@ func TestPersistedStateIntegrityAcceptsNewFilePendingWithoutBaseHash(t *testing.
 func TestPersistedStateIntegrityRejectsWrongPendingToolState(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateRepairWrite
-	state.RepairPath = "math.pl"
-	state.PendingAction = pendingWrite("write_file", "math.pl", "fixed")
+	state.RepairPath = "math.go"
+	state.PendingAction = pendingWrite("write_file", "math.go", "fixed")
 
 	if err := validatePersistedStateIntegrity(state); err == nil {
 		t.Fatal("write_file pending action in REPAIR_WRITE must be rejected")
@@ -119,7 +119,7 @@ func TestPersistedStateIntegrityRejectsWrongPendingToolState(t *testing.T) {
 func TestPersistedStateIntegrityRejectsUnknownPendingTool(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateWriteReq
-	state.PendingAction = pendingWrite("exec", "math.pl", "fixed")
+	state.PendingAction = pendingWrite("exec", "math.go", "fixed")
 
 	if err := validatePersistedStateIntegrity(state); err == nil {
 		t.Fatal("unknown pending tool must be rejected")
@@ -139,7 +139,7 @@ func TestPersistedStateIntegrityRejectsPendingWithoutPath(t *testing.T) {
 func TestPersistedStateIntegrityRejectsPendingWithoutContent(t *testing.T) {
 	state := persistedStateBase()
 	state.State = StateWriteReq
-	state.PendingAction = pendingWrite("write_file", "math.pl", "")
+	state.PendingAction = pendingWrite("write_file", "math.go", "")
 
 	if err := validatePersistedStateIntegrity(state); err == nil {
 		t.Fatal("pending write without content must be rejected")

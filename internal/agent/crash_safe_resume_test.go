@@ -11,16 +11,15 @@ import (
 func TestCrashSafeResumeAfterWriteAction(t *testing.T) {
 	root := t.TempDir()
 
-	initial := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
-}
+	initial := `package main
 
-1;
+func Add(a, b int) int {
+	return a + b
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(initial),
 		0644,
 	); err != nil {
@@ -31,7 +30,7 @@ func TestCrashSafeResumeAfterWriteAction(t *testing.T) {
 	agent.Router = tools.New(root)
 	agent.State = StateWriteReq
 
-	task := "Change math.pl so add(2, 3) returns 10"
+	task := "Change math.go so add(2, 3) returns 10"
 
 	/*
 		Simulate the checkpoint immediately before the dangerous
@@ -85,7 +84,7 @@ func TestCrashSafeResumeAfterWriteAction(t *testing.T) {
 		)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	data, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -17,7 +17,7 @@ func TestProjectIndexPersistsThroughTaskState(t *testing.T) {
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(projectDir, "math.pl"),
+		filepath.Join(projectDir, "math.go"),
 		[]byte("sub add { $_[0] + $_[1] }\n"),
 		0644,
 	); err != nil {
@@ -102,10 +102,10 @@ func TestProjectIndexPersistsThroughTaskState(t *testing.T) {
 func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing.T) {
 	root := t.TempDir()
 
-	original := "sub add { return 10; }\n1;\n"
-	changed := "sub add { return 11; }\n1;\n"
+	original := "package main\n\nfunc Add(a, b int) int {\n\treturn 10\n}\n"
+	changed := "package main\n\nfunc Add(a, b int) int {\n\treturn 11\n}\n"
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 
 	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
 		t.Fatal(err)
@@ -118,14 +118,14 @@ func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing
 
 	originalHash := ""
 	for _, file := range index.Files {
-		if file.Path == "math.pl" {
+		if file.Path == "math.go" {
 			originalHash = file.Hash
 			break
 		}
 	}
 
 	if originalHash == "" {
-		t.Fatal("math.pl missing from baseline project index")
+		t.Fatal("math.go missing from baseline project index")
 	}
 
 	agent := &Agent{
@@ -134,7 +134,7 @@ func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing
 		ProjectIndex: index,
 	}
 
-	task := "change math.pl"
+	task := "change math.go"
 
 	if err := agent.saveState(task, 1); err != nil {
 		t.Fatalf("saveState failed: %v", err)
@@ -161,7 +161,7 @@ func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing
 	}
 
 	for _, file := range restored.ProjectIndex.Files {
-		if file.Path == "math.pl" {
+		if file.Path == "math.go" {
 			if file.Hash != originalHash {
 				t.Fatalf(
 					"restored ProjectIndex changed after filesystem mutation: got hash %q, want baseline %q",
@@ -173,5 +173,5 @@ func TestProjectIndexRestoreKeepsPreTaskBaselineAfterFilesystemChange(t *testing
 		}
 	}
 
-	t.Fatal("math.pl missing from restored ProjectIndex")
+	t.Fatal("math.go missing from restored ProjectIndex")
 }

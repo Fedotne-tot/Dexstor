@@ -16,7 +16,7 @@ import (
 func TestControllerRejectsWriteForUnreadExistingFile(t *testing.T) {
 	root := t.TempDir()
 
-	task := `Исправь math.pl, сохранив корректную функцию add.`
+	task := `Исправь math.go, сохранив корректную функцию add.`
 
 	if err := os.WriteFile(
 		filepath.Join(root, "TASK.md"),
@@ -26,18 +26,14 @@ func TestControllerRejectsWriteForUnreadExistingFile(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	mathPath := filepath.Join(root, "math.pl")
+	mathPath := filepath.Join(root, "math.go")
 
 	if err := os.WriteFile(
 		mathPath,
@@ -51,7 +47,7 @@ our @EXPORT_OK = qw(add);
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "DEXSTER Test"},
-		{"git", "-C", root, "add", "TASK.md", "math.pl"},
+		{"git", "-C", root, "add", "TASK.md", "math.go"},
 		{"git", "-C", root, "commit", "-m", "initial state"},
 	}
 
@@ -87,7 +83,7 @@ arg: TASK.md`
 		case 3:
 			response = `TOOL_CALL
 name: write_file
-path: math.pl
+path: math.go
 content: BROKEN CONTENT`
 
 		default:
@@ -129,7 +125,7 @@ content: BROKEN CONTENT`
 	}
 
 	if string(content) != math {
-		t.Fatal("math.pl was modified despite missing trusted snapshot")
+		t.Fatal("math.go was modified despite missing trusted snapshot")
 	}
 
 	for _, record := range agent.ActionLedger {

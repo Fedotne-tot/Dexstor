@@ -10,13 +10,13 @@ import (
 func TestRepairTargetFallsBackToLastWritePath(t *testing.T) {
 	index := &projectindex.Index{
 		Files: []projectindex.File{
-			{Path: "math.pl", Language: "Perl"},
-			{Path: "test.pl", Language: "Perl"},
+			{Path: "math.go", Language: "Perl"},
+			{Path: "test.go", Language: "Perl"},
 		},
 		Relations: []projectindex.Relation{
 			{
-				File:   "test.pl",
-				Target: "math.pl",
+				File:   "test.go",
+				Target: "math.go",
 				Kind:   "require",
 			},
 		},
@@ -25,13 +25,13 @@ func TestRepairTargetFallsBackToLastWritePath(t *testing.T) {
 	a := New(t.TempDir(), "test-model", 12)
 	a.ProjectIndex = index
 	a.DependencyGraph = dependencygraph.Build(index)
-	a.LastWritePath = "math.pl"
+	a.LastWritePath = "math.go"
 
 	got := a.failedSourcePath("expected 10, got 5\n")
 
-	if got != "math.pl" {
+	if got != "math.go" {
 		t.Fatalf(
-			"expected fallback repair target math.pl, got %q",
+			"expected fallback repair target math.go, got %q",
 			got,
 		)
 	}

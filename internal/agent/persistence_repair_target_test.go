@@ -12,13 +12,13 @@ func TestRestoredGraphCanResolveRepairTarget(t *testing.T) {
 
 	index := &projectindex.Index{
 		Files: []projectindex.File{
-			{Path: "math.pl", Language: "Perl"},
-			{Path: "test.pl", Language: "Perl"},
+			{Path: "math.go", Language: "Perl"},
+			{Path: "test.go", Language: "Perl"},
 		},
 		Relations: []projectindex.Relation{
 			{
-				File:   "test.pl",
-				Target: "math.pl",
+				File:   "test.go",
+				Target: "math.go",
 				Kind:   "require",
 			},
 		},
@@ -28,10 +28,10 @@ func TestRestoredGraphCanResolveRepairTarget(t *testing.T) {
 	original.ProjectIndex = index
 	original.DependencyGraph = dependencygraph.Build(index)
 	original.State = StateRepairRead
-	original.RepairPath = "math.pl"
-	original.LastTestError = "test.pl: expected 10, got 5"
+	original.RepairPath = "math.go"
+	original.LastTestError = "test.go: expected 10, got 5"
 
-	task := "Fix math.pl so add(2, 3) returns 10"
+	task := "Fix math.go so add(2, 3) returns 10"
 
 	if err := original.saveState(task, 7); err != nil {
 		t.Fatalf("save state: %v", err)
@@ -58,12 +58,12 @@ func TestRestoredGraphCanResolveRepairTarget(t *testing.T) {
 	}
 
 	got := restored.failedSourcePath(
-		"test.pl: expected 10, got 5\n",
+		"test.go: expected 10, got 5\n",
 	)
 
-	if got != "math.pl" {
+	if got != "math.go" {
 		t.Fatalf(
-			"expected restored repair target math.pl, got %q",
+			"expected restored repair target math.go, got %q",
 			got,
 		)
 	}

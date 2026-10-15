@@ -41,6 +41,12 @@ var (
 	perlSubRe = regexp.MustCompile(`(?m)^\s*sub\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
 	perlUseRe = regexp.MustCompile(`(?m)^\s*use\s+([A-Za-z_][A-Za-z0-9_:]*)`)
 	perlReqRe = regexp.MustCompile(`(?m)^\s*require\s+["']([^"']+)["']`)
+
+	goFuncRe      = regexp.MustCompile(`(?m)^func\s+(?:\([^)]*\)\s*)?([A-Za-z_][A-Za-z0-9_]*)\b`)
+	goTypeRe      = regexp.MustCompile(`(?m)^type\s+([A-Za-z_][A-Za-z0-9_]*)\b`)
+	goImportRe    = regexp.MustCompile(`(?m)^import\s+"([^"]+)"`)
+	goImportBlkRe = regexp.MustCompile("(?s)import\\s*\\(([^)]*)\\)")
+	goQuotedRe    = regexp.MustCompile(`"([^"]+)"`)
 )
 
 func Build(root string) (*Index, error) {
@@ -102,6 +108,10 @@ func Build(root string) (*Index, error) {
 
 		if file.Language == "Perl" {
 			parsePerl(index, rel, string(data))
+		}
+
+		if strings.EqualFold(filepath.Ext(path), ".go") {
+			parseGo(index, abs, rel, string(data))
 		}
 
 		return nil
@@ -174,6 +184,60 @@ func parsePerl(index *Index, path, content string) {
 				Kind:   "require",
 			})
 		}
+	}
+}
+
+func parseGo(index *Index, root, path, content string) {
+	for _, match := range goFuncRe.FindAllStringSubmatch(content, -1) {
+		if len(match) == 2 {
+			index.Symbols = append(index.Symbols, Symbol{
+				File: path,
+				Name: match[1],
+				Kind: "func",
+			})
+		}
+	}
+
+	for _, match := range goTypeRe.FindAllStringSubmatch(content, -1) {
+		if len(match) == 2 {
+			index.Symbols = append(index.Symbols, Symbol{
+				File: path,
+				Name: match[1],
+				Kind: "type",
+			})
+		}
+	}
+
+	imports := make([]string, 0)
+	for _, match := range goImportRe.FindAllStringSubmatch(content, -1) {
+		if len(match) == 2 {
+			imports = append(imports, match[1])
+		}
+	}
+	for _, block := range goImportBlkRe.FindAllStringSubmatch(content, -1) {
+		if len(block) == 2 {
+			for _, quoted := range goQuotedRe.FindAllStringSubmatch(block[1], -1) {
+				if len(quoted) == 2 {
+					imports = append(imports, quoted[1])
+				}
+			}
+		}
+	}
+
+	for _, imp := range imports {
+		candidate := filepath.Join(filepath.Dir(path), imp)
+		rel := filepath.ToSlash(candidate)
+		if strings.HasPrefix(rel, "../") {
+			continue
+		}
+		if _, err := os.Stat(filepath.Join(root, filepath.FromSlash(rel))); err != nil {
+			continue
+		}
+		index.Relations = append(index.Relations, Relation{
+			File:   path,
+			Target: rel,
+			Kind:   "use",
+		})
 	}
 }
 

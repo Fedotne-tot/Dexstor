@@ -12,22 +12,31 @@ import (
 func TestVerifyDiffAcceptsGitRepoWithOnlyUntrackedChange(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    return 10;
-}
+	math := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add();
-die "WRONG: $result\n" unless $result == 10;
-print "PASS\n";
+import "fmt"
+
+func main() {
+	result := Add(2, 3)
+
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -35,7 +44,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -69,7 +78,7 @@ print "PASS\n";
 	runGit("init")
 	runGit("config", "user.email", "test@example.com")
 	runGit("config", "user.name", "Test")
-	runGit("add", "math.pl", "test.pl", ".gitignore")
+	runGit("add", "math.go", "test.go", ".gitignore")
 	runGit("commit", "-m", "baseline")
 
 	baseline, err := projectindex.Build(root)
@@ -105,7 +114,7 @@ print "PASS\n";
 			0,
 			"write_file",
 			"write completed",
-			"math.pl",
+			"math.go",
 			math,
 		),
 	}
@@ -160,11 +169,11 @@ print "PASS\n";
 func TestVerifyDiffAcceptsGitRepoWithModifiedTrackedFile(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    return 10;
-}
+	math := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
 	modifiedMath := `sub add {
@@ -174,15 +183,24 @@ func TestVerifyDiffAcceptsGitRepoWithModifiedTrackedFile(t *testing.T) {
 1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add();
-die "WRONG: $result\n" unless $result == 11;
-print "PASS\n";
+import "fmt"
+
+func main() {
+	result := Add(2, 3)
+
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -190,7 +208,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -216,7 +234,7 @@ print "PASS\n";
 	runGit("init")
 	runGit("config", "user.email", "test@example.com")
 	runGit("config", "user.name", "Test")
-	runGit("add", "math.pl", "test.pl")
+	runGit("add", "math.go", "test.go")
 	runGit("commit", "-m", "baseline")
 
 	baseline, err := projectindex.Build(root)
@@ -225,7 +243,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(modifiedMath),
 		0644,
 	); err != nil {
@@ -246,7 +264,7 @@ print "PASS\n";
 			0,
 			"write_file",
 			"write completed",
-			"math.pl",
+			"math.go",
 			modifiedMath,
 		),
 	}
@@ -285,14 +303,14 @@ print "PASS\n";
 
 	diff := projectindex.Diff(baseline, current)
 	for _, path := range diff.Modified {
-		if path == "math.pl" {
+		if path == "math.go" {
 			foundModified = true
 			break
 		}
 	}
 
 	if !foundModified {
-		t.Fatalf("expected math.pl in Modified, got %#v", diff)
+		t.Fatalf("expected math.go in Modified, got %#v", diff)
 	}
 
 	if !foundTestPass {
@@ -303,25 +321,34 @@ print "PASS\n";
 func TestVerifyDiffAcceptsGitRepoWithDeletedTrackedFile(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    return 10;
-}
+	math := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add();
-die "WRONG: $result\n" unless $result == 10;
-print "PASS\n";
+import "fmt"
+
+func main() {
+	result := Add(2, 3)
+
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	helper := `print "helper\n";
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -329,7 +356,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -363,7 +390,7 @@ print "PASS\n";
 	runGit("init")
 	runGit("config", "user.email", "test@example.com")
 	runGit("config", "user.name", "Test")
-	runGit("add", "math.pl", "test.pl", "helper.pl")
+	runGit("add", "math.go", "test.go", "helper.pl")
 	runGit("commit", "-m", "baseline")
 
 	baseline, err := projectindex.Build(root)
@@ -389,7 +416,7 @@ print "PASS\n";
 			0,
 			"write_file",
 			"write completed",
-			"math.pl",
+			"math.go",
 			math,
 		),
 	}
@@ -447,11 +474,11 @@ print "PASS\n";
 func TestVerifyDiffAcceptsNonGitProjectChange(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    return 10;
-}
+	math := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
 	changedMath := `sub add {
@@ -461,15 +488,24 @@ func TestVerifyDiffAcceptsNonGitProjectChange(t *testing.T) {
 1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add();
-die "WRONG: $result\n" unless $result == 11;
-print "PASS\n";
+import "fmt"
+
+func main() {
+	result := Add(2, 3)
+
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -477,7 +513,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -490,7 +526,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(changedMath),
 		0644,
 	); err != nil {
@@ -511,7 +547,7 @@ print "PASS\n";
 			0,
 			"write_file",
 			"write completed",
-			"math.pl",
+			"math.go",
 			changedMath,
 		),
 	}
@@ -566,7 +602,7 @@ print "PASS\n";
 
 	foundModified := false
 	for _, path := range diff.Modified {
-		if path == "math.pl" {
+		if path == "math.go" {
 			foundModified = true
 			break
 		}
@@ -574,7 +610,7 @@ print "PASS\n";
 
 	if !foundModified {
 		t.Fatalf(
-			"expected math.pl in Modified, got %#v",
+			"expected math.go in Modified, got %#v",
 			diff,
 		)
 	}
@@ -583,22 +619,31 @@ print "PASS\n";
 func TestVerifyDiffRejectsNoProjectChange(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    return 10;
-}
+	math := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add();
-die "WRONG: $result\n" unless $result == 10;
-print "PASS\n";
+import "fmt"
+
+func main() {
+	result := Add(2, 3)
+
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -606,7 +651,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {

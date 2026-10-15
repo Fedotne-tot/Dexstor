@@ -10,13 +10,13 @@ import (
 func TestFailedSourcePathUsesDependencyGraph(t *testing.T) {
 	index := &projectindex.Index{
 		Files: []projectindex.File{
-			{Path: "math.pl", Language: "Perl"},
-			{Path: "test.pl", Language: "Perl"},
+			{Path: "math.go", Language: "Perl"},
+			{Path: "test.go", Language: "Perl"},
 		},
 		Relations: []projectindex.Relation{
 			{
-				File:   "test.pl",
-				Target: "math.pl",
+				File:   "test.go",
+				Target: "math.go",
 				Kind:   "require",
 			},
 		},
@@ -27,9 +27,9 @@ func TestFailedSourcePathUsesDependencyGraph(t *testing.T) {
 		LastWritePath:   "",
 	}
 
-	got := a.failedSourcePath("test.pl: FAILED\nexpected 10, got 5")
+	got := a.failedSourcePath("test.go: FAILED\nexpected 10, got 5")
 
-	if got != "math.pl" {
-		t.Fatalf("expected repair target math.pl, got %q", got)
+	if got != "math.go" {
+		t.Fatalf("expected repair target math.go, got %q", got)
 	}
 }

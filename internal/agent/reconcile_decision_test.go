@@ -9,7 +9,7 @@ import (
 func TestReconcilePendingWriteNotCompletedIsNotRecovered(t *testing.T) {
 	root := t.TempDir()
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 	oldContent := "OLD\n"
 	newContent := "NEW\n"
 
@@ -26,13 +26,13 @@ func TestReconcilePendingWriteNotCompletedIsNotRecovered(t *testing.T) {
 		PendingAction: &PendingAction{
 			Tool: "write_file",
 			Args: map[string]string{
-				"path":    "math.pl",
+				"path":    "math.go",
 				"content": newContent,
 			},
 		},
 	}
 
-	state.FileHashes["math.pl"] = contentHash(oldContent)
+	state.FileHashes["math.go"] = contentHash(oldContent)
 
 	a := New(root, "test-model", 10)
 
@@ -62,7 +62,7 @@ func TestReconcilePendingWriteNotCompletedIsNotRecovered(t *testing.T) {
 func TestReconcilePendingWriteCompletedIsRecovered(t *testing.T) {
 	root := t.TempDir()
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 	content := "NEW\n"
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -78,7 +78,7 @@ func TestReconcilePendingWriteCompletedIsRecovered(t *testing.T) {
 		PendingAction: &PendingAction{
 			Tool: "write_file",
 			Args: map[string]string{
-				"path":    "math.pl",
+				"path":    "math.go",
 				"content": content,
 			},
 		},
@@ -108,7 +108,7 @@ func TestReconcilePendingWriteMissingFileIsNotRecovered(t *testing.T) {
 		PendingAction: &PendingAction{
 			Tool: "write_file",
 			Args: map[string]string{
-				"path":    "math.pl",
+				"path":    "math.go",
 				"content": "NEW\n",
 			},
 		},
@@ -129,7 +129,7 @@ func TestReconcilePendingWriteMissingFileIsNotRecovered(t *testing.T) {
 func TestReconcileFileHashMismatchIsStale(t *testing.T) {
 	root := t.TempDir()
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 	actual := "ACTUAL\n"
 	expected := "EXPECTED\n"
 
@@ -143,7 +143,7 @@ func TestReconcileFileHashMismatchIsStale(t *testing.T) {
 		Project:   root,
 		ReadFiles: make(map[string]string),
 		FileHashes: map[string]string{
-			"math.pl": contentHash(expected),
+			"math.go": contentHash(expected),
 		},
 	}
 
@@ -162,7 +162,7 @@ func TestReconcileFileHashMismatchIsStale(t *testing.T) {
 func TestReconcileFileHashMatchAllowsResume(t *testing.T) {
 	root := t.TempDir()
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 	content := "EXPECTED\n"
 
 	if err := os.WriteFile(path, []byte(content), 0644); err != nil {
@@ -175,7 +175,7 @@ func TestReconcileFileHashMatchAllowsResume(t *testing.T) {
 		Project:   root,
 		ReadFiles: make(map[string]string),
 		FileHashes: map[string]string{
-			"math.pl": contentHash(content),
+			"math.go": contentHash(content),
 		},
 	}
 

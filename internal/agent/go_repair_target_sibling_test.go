@@ -83,13 +83,13 @@ func TestPerlRepairTargetUnchangedByGoResolution(t *testing.T) {
 	}{
 		{
 			name:   "perl colon form stays .pl",
-			output: "test.pl: FAILED\nexpected 10, got 5",
-			want:   "test.pl",
+			output: "test.go: FAILED\nexpected 10, got 5",
+			want:   "test.go",
 		},
 		{
 			name:   "perl dot-slash form stays .pl",
-			output: "./math.pl did not return a true value at line 3",
-			want:   "math.pl",
+			output: "./math.go did not return a true value at line 3",
+			want:   "math.go",
 		},
 	}
 

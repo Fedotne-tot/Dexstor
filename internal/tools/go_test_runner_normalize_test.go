@@ -17,7 +17,7 @@ func writeScratchModule(t *testing.T, root string) {
 	t.Helper()
 
 	if err := os.WriteFile(filepath.Join(root, "go.mod"),
-		[]byte("module scratch\n\ngo 1.23\n"), 0o644); err != nil {
+		[]byte("module scratch\n\ngo 1.22\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
@@ -79,23 +79,27 @@ func TestGoTestRunnerFailOutputHasNoPASSMarker(t *testing.T) {
 	}
 }
 
-// Perl path must remain byte-for-byte unchanged by PR-8 normalization.
-func TestPerlRunnerOutputUnchangedByNormalization(t *testing.T) {
+// Migration replacement: a standalone Go test program (the role formerly
+// played by test.pl + perl) must satisfy the same ledger contract and its
+// output must remain byte-for-byte unchanged by PR-8 normalization.
+func TestGoFileRunnerOutputUnchangedByNormalization(t *testing.T) {
 	root := t.TempDir()
 
-	plPath := filepath.Join(root, "test.pl")
-	if err := os.WriteFile(plPath, []byte("print \"PASS\\n\";\n"), 0o644); err != nil {
+	writeScratchModule(t, root)
+
+	src := "package main\n\nimport \"fmt\"\n\nfunc main() {\n\tfmt.Println(\"PASS\")\n}\n"
+	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	r := New(root)
-	res := r.Test("test.pl")
+	res := r.Test("test.go")
 
 	if !res.OK || res.Status != "PASS" || res.Exit != 0 {
-		t.Fatalf("perl path regressed: OK=%v Status=%q Exit=%d Error=%q", res.OK, res.Status, res.Exit, res.Error)
+		t.Fatalf("go file runner regressed: OK=%v Status=%q Exit=%d Error=%q", res.OK, res.Status, res.Exit, res.Error)
 	}
 	if res.Output != "PASS\n" {
-		t.Fatalf("perl output changed by PR-8: got %q, want %q", res.Output, "PASS\n")
+		t.Fatalf("go file output changed by PR-8: got %q, want %q", res.Output, "PASS\n")
 	}
 }
 

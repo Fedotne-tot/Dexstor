@@ -20,10 +20,10 @@ func TestTaskStateAtomicSave(t *testing.T) {
 		Iteration: 5,
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"write_file:math.go",
 			"git_diff",
-			"test:test.pl",
+			"test:test.go",
 		},
 		ReadFiles:  make(map[string]string),
 		FileHashes: make(map[string]string),

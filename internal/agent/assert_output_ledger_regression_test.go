@@ -36,7 +36,7 @@ func TestAssertOutputRecordsVerifiableLedgerEntryAndCannotComplete(t *testing.T)
 	task := "assert_output must be recorded in the action ledger"
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte("print 'hello';\n"),
 		0644,
 	); err != nil {

@@ -17,12 +17,12 @@ import (
 func TestWriteFileRejectsStaleSnapshotAtFSM(t *testing.T) {
 	root := t.TempDir()
 
-	task := "Inspect math.pl, read it, then write the same content back."
+	task := "Inspect math.go, read it, then write the same content back."
 
 	original := "sub add { return 5; }\n1;\n"
 	external := "sub add { return 999; }\n1;\n"
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 
 	if err := os.WriteFile(path, []byte(original), 0644); err != nil {
 		t.Fatal(err)
@@ -66,7 +66,7 @@ END_TOOL_CALL`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-path: math.pl
+path: math.go
 END_TOOL_CALL`
 
 		case 3:
@@ -78,7 +78,7 @@ END_TOOL_CALL`
 
 			response = `TOOL_CALL
 name: write_file
-path: math.pl
+path: math.go
 content: sub add { return 5; }
 1;
 END_TOOL_CALL`

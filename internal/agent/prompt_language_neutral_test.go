@@ -7,8 +7,8 @@ import (
 	"testing"
 )
 
-// PR-12 regression: the prompt must not hard-wire "test.pl" as a required
-// file for Go projects, while Perl projects keep recognizing test.pl.
+// PR-12 regression: the prompt must not hard-wire "test.go" as a required
+// file for Go projects, while Perl projects keep recognizing test.go.
 
 func TestGoProjectPromptIsLanguageNeutral(t *testing.T) {
 	root := t.TempDir()
@@ -42,8 +42,8 @@ func TestGoProjectPromptIsLanguageNeutral(t *testing.T) {
 	prompt := agent.prompt("fix go project")
 
 	// The old mandatory-file wording must be gone from a pure Go project.
-	if strings.Contains(prompt, "test.pl") {
-		t.Fatalf("Go project prompt still mentions test.pl:\n%s", prompt)
+	if strings.Contains(prompt, "test.go") {
+		t.Fatalf("Go project prompt still mentions test.go:\n%s", prompt)
 	}
 
 	// Language-neutral replacement sections must be present.
@@ -57,7 +57,7 @@ func TestGoProjectPromptIsLanguageNeutral(t *testing.T) {
 		}
 	}
 
-	// StateTest path selection must detect the Go test file, not test.pl.
+	// StateTest path selection must detect the Go test file, not test.go.
 	if got := agent.detectTestFile(); got != "math_test.go" {
 		t.Fatalf("detectTestFile() = %q, want %q", got, "math_test.go")
 	}
@@ -67,7 +67,7 @@ func TestPerlProjectStillDetectsTestPL(t *testing.T) {
 	root := t.TempDir()
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte("sub add { $_[0] + $_[1] }\n"),
 		0644,
 	); err != nil {
@@ -75,8 +75,8 @@ func TestPerlProjectStillDetectsTestPL(t *testing.T) {
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
-		[]byte("require 'math.pl';\nprint 'PASS\\n';\n"),
+		filepath.Join(root, "test.go"),
+		[]byte("require 'math.go';\nprint 'PASS\\n';\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
@@ -84,16 +84,16 @@ func TestPerlProjectStillDetectsTestPL(t *testing.T) {
 
 	agent := New(root, "test-model", 1)
 
-	// Existing Perl fixtures keep working: test.pl remains the first
+	// Existing Perl fixtures keep working: test.go remains the first
 	// candidate and stays mentionable in the prompt examples.
-	if got := agent.detectTestFile(); got != "test.pl" {
-		t.Fatalf("detectTestFile() = %q, want %q", got, "test.pl")
+	if got := agent.detectTestFile(); got != "test.go" {
+		t.Fatalf("detectTestFile() = %q, want %q", got, "test.go")
 	}
 
 	prompt := agent.prompt("fix perl project")
 
-	if !strings.Contains(prompt, "test.pl") {
-		t.Fatalf("Perl project prompt lost test.pl example:\n%s", prompt)
+	if !strings.Contains(prompt, "test.go") {
+		t.Fatalf("Perl project prompt lost test.go example:\n%s", prompt)
 	}
 
 	if !strings.Contains(prompt, "PROJECT TEST FILE:") {
@@ -116,7 +116,7 @@ func TestDetectTestFileFallsBackWhenNoTestFileExists(t *testing.T) {
 
 	// Fallback keeps the historical default; the caller then switches to
 	// LastWritePath via the existing os.Stat check (unchanged FSM logic).
-	if got := agent.detectTestFile(); got != "test.pl" {
-		t.Fatalf("detectTestFile() = %q, want fallback %q", got, "test.pl")
+	if got := agent.detectTestFile(); got != "test.go" {
+		t.Fatalf("detectTestFile() = %q, want fallback %q", got, "test.go")
 	}
 }

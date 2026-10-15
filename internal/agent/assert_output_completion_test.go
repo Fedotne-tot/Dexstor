@@ -17,30 +17,33 @@ import (
 func TestAssertOutputCannotCompleteTaskWithoutMandatoryVerification(t *testing.T) {
 	root := t.TempDir()
 
-	task := "Исправь math.pl. test.pl является тестом."
+	task := "Исправь math.go. test.go является тестом."
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 5;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -48,7 +51,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -59,7 +62,7 @@ print "PASS\n";
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "DEXSTER Test"},
-		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "add", "math.go", "test.go"},
 		{"git", "-C", root, "commit", "-m", "initial state"},
 	}
 
@@ -101,7 +104,7 @@ name: inspect_project`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-arg: math.pl`
+arg: math.go`
 
 		case 3:
 			/*

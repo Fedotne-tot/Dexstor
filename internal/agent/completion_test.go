@@ -51,14 +51,14 @@ func TestValidateCompletionSuccess(t *testing.T) {
 			completionAction(
 				2,
 				"read_file",
-				"math.pl",
-				"math.pl",
+				"math.go",
+				"math.go",
 			),
 			completionAction(
 				3,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -70,7 +70,7 @@ func TestValidateCompletionSuccess(t *testing.T) {
 				5,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -92,7 +92,7 @@ func TestValidateCompletionRejectsFailedTest(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -104,7 +104,7 @@ func TestValidateCompletionRejectsFailedTest(t *testing.T) {
 				4,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -126,7 +126,7 @@ func TestValidateCompletionRepair(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 5;\n",
 			),
 			completionAction(
@@ -138,19 +138,19 @@ func TestValidateCompletionRepair(t *testing.T) {
 				4,
 				"test",
 				"WRONG: 5",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"repair_read",
-				"math.pl",
-				"math.pl",
+				"math.go",
+				"math.go",
 			),
 			completionAction(
 				6,
 				"repair_write",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -162,7 +162,7 @@ func TestValidateCompletionRepair(t *testing.T) {
 				8,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -184,7 +184,7 @@ func TestValidateCompletionRejectsWriteAfterFinalTest(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -196,13 +196,13 @@ func TestValidateCompletionRejectsWriteAfterFinalTest(t *testing.T) {
 				4,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 		},
@@ -230,14 +230,14 @@ func TestValidateCompletionRejectsDiffBeforeFinalWrite(t *testing.T) {
 				3,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
 				4,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -259,7 +259,7 @@ func TestValidateCompletionRejectsTestBeforeFinalDiff(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -271,7 +271,7 @@ func TestValidateCompletionRejectsTestBeforeFinalDiff(t *testing.T) {
 				4,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
@@ -298,7 +298,7 @@ func TestValidateCompletionRejectsRepairWithoutRepairRead(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -310,13 +310,13 @@ func TestValidateCompletionRejectsRepairWithoutRepairRead(t *testing.T) {
 				4,
 				"test",
 				"WRONG: 5",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"repair_write",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -328,7 +328,7 @@ func TestValidateCompletionRejectsRepairWithoutRepairRead(t *testing.T) {
 				7,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -350,7 +350,7 @@ func TestValidateCompletionRejectsRepairWithoutRepairWrite(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -362,13 +362,13 @@ func TestValidateCompletionRejectsRepairWithoutRepairWrite(t *testing.T) {
 				4,
 				"test",
 				"WRONG: 5",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"repair_read",
-				"math.pl",
-				"math.pl",
+				"math.go",
+				"math.go",
 			),
 			completionAction(
 				6,
@@ -379,7 +379,7 @@ func TestValidateCompletionRejectsRepairWithoutRepairWrite(t *testing.T) {
 				7,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -401,7 +401,7 @@ func TestValidateCompletionTreatsRepairWriteAsFinalWrite(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 5;\n",
 			),
 			completionAction(
@@ -413,19 +413,19 @@ func TestValidateCompletionTreatsRepairWriteAsFinalWrite(t *testing.T) {
 				4,
 				"test",
 				"WRONG: 5",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"repair_read",
-				"math.pl",
-				"math.pl",
+				"math.go",
+				"math.go",
 			),
 			completionAction(
 				6,
 				"repair_write",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -437,7 +437,7 @@ func TestValidateCompletionTreatsRepairWriteAsFinalWrite(t *testing.T) {
 				8,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -459,7 +459,7 @@ func TestValidateCompletionRejectsRepairWriteAfterFinalDiff(t *testing.T) {
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 5;\n",
 			),
 			completionAction(
@@ -471,13 +471,13 @@ func TestValidateCompletionRejectsRepairWriteAfterFinalDiff(t *testing.T) {
 				4,
 				"test",
 				"WRONG: 5",
-				"test.pl",
+				"test.go",
 			),
 			completionAction(
 				5,
 				"repair_read",
-				"math.pl",
-				"math.pl",
+				"math.go",
+				"math.go",
 			),
 			completionAction(
 				6,
@@ -488,14 +488,14 @@ func TestValidateCompletionRejectsRepairWriteAfterFinalDiff(t *testing.T) {
 				7,
 				"repair_write",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
 				8,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}
@@ -518,7 +518,7 @@ func TestValidateCompletionAcceptsEmptyGitDiffAfterSemanticVerification(t *testi
 				2,
 				"write_file",
 				"write completed",
-				"math.pl",
+				"math.go",
 				"return 10;\n",
 			),
 			completionAction(
@@ -530,7 +530,7 @@ func TestValidateCompletionAcceptsEmptyGitDiffAfterSemanticVerification(t *testi
 				4,
 				"test",
 				"PASS",
-				"test.pl",
+				"test.go",
 			),
 		},
 	}

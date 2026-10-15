@@ -12,16 +12,16 @@ func TestRepairTargetIsDeterministicWithMultipleDependencies(t *testing.T) {
 		Files: []projectindex.File{
 			{Path: "alpha.pl", Language: "Perl"},
 			{Path: "beta.pl", Language: "Perl"},
-			{Path: "test.pl", Language: "Perl"},
+			{Path: "test.go", Language: "Perl"},
 		},
 		Relations: []projectindex.Relation{
 			{
-				File:   "test.pl",
+				File:   "test.go",
 				Target: "beta.pl",
 				Kind:   "require",
 			},
 			{
-				File:   "test.pl",
+				File:   "test.go",
 				Target: "alpha.pl",
 				Kind:   "require",
 			},
@@ -33,7 +33,7 @@ func TestRepairTargetIsDeterministicWithMultipleDependencies(t *testing.T) {
 	a.DependencyGraph = dependencygraph.Build(index)
 
 	for i := 0; i < 10; i++ {
-		got := a.failedSourcePath("test.pl: expected 10, got 5\n")
+		got := a.failedSourcePath("test.go: expected 10, got 5\n")
 
 		if got != "alpha.pl" {
 			t.Fatalf(

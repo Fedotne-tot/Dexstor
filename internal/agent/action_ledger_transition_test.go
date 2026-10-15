@@ -4,7 +4,7 @@ import "testing"
 
 func TestActionLedgerTransitionAllowsPartialSnapshotStartingWithRead(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(7, "read_file", "content", "math.pl"),
+		completionAction(7, "read_file", "content", "math.go"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err != nil {
@@ -14,8 +14,8 @@ func TestActionLedgerTransitionAllowsPartialSnapshotStartingWithRead(t *testing.
 
 func TestActionLedgerTransitionRejectsWriteAfterInspectWithoutRead(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "write_file", "write completed", "math.pl", "fixed"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "write_file", "write completed", "math.go", "fixed"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err == nil {
@@ -25,8 +25,8 @@ func TestActionLedgerTransitionRejectsWriteAfterInspectWithoutRead(t *testing.T)
 
 func TestActionLedgerTransitionAcceptsInspectThenRead(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "read_file", "content", "math.pl"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "read_file", "content", "math.go"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err != nil {
@@ -36,8 +36,8 @@ func TestActionLedgerTransitionAcceptsInspectThenRead(t *testing.T) {
 
 func TestActionLedgerTransitionRejectsRepairWriteBeforeRepairRead(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "repair_write", "write completed", "math.pl", "fixed"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "repair_write", "write completed", "math.go", "fixed"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err == nil {
@@ -47,38 +47,38 @@ func TestActionLedgerTransitionRejectsRepairWriteBeforeRepairRead(t *testing.T) 
 
 func TestActionLedgerTransitionAcceptsRepairSequence(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "read_file", "content", "math.pl"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "read_file", "content", "math.go"),
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", "fixed"),
-			Args:      []string{"math.pl", "fixed"},
+			ActionKey: makeActionKey("write_file", "math.go", "fixed"),
+			Args:      []string{"math.go", "fixed"},
 			BaseHash:  contentHash("content"),
 			Result:    "file written successfully",
 			OK:        true,
 			Exit:      0,
 		},
 		completionAction(4, "git_diff", "diff"),
-		completionAction(5, "test", "WRONG: 5", "test.pl"),
-		completionAction(6, "repair_read", "broken content", "math.pl"),
+		completionAction(5, "test", "WRONG: 5", "test.go"),
+		completionAction(6, "repair_read", "broken content", "math.go"),
 		{
 			Iteration: 7,
 			Tool:      "repair_write",
-			ActionKey: makeActionKey("repair_write", "math.pl", "fixed"),
-			Args:      []string{"math.pl", "fixed"},
+			ActionKey: makeActionKey("repair_write", "math.go", "fixed"),
+			Args:      []string{"math.go", "fixed"},
 			BaseHash:  contentHash("broken content"),
 			Result:    "write completed",
 			OK:        true,
 			Exit:      0,
 		},
 		completionAction(8, "git_diff", "diff"),
-		completionAction(9, "test", "PASS", "test.pl"),
+		completionAction(9, "test", "PASS", "test.go"),
 	}
 
 	ledger[4].OK = false
 	ledger[4].Exit = 1
-	ledger[4].ActionKey = makeActionKey("test", "test.pl")
+	ledger[4].ActionKey = makeActionKey("test", "test.go")
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err != nil {
 		t.Fatalf("valid repair sequence must be accepted: %v", err)
@@ -87,21 +87,21 @@ func TestActionLedgerTransitionAcceptsRepairSequence(t *testing.T) {
 
 func TestActionLedgerTransitionAllowsMultipleActionsSameIteration(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "read_file", "math", "math.pl"),
-		completionAction(2, "read_file", "test", "test.pl"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "read_file", "math", "math.go"),
+		completionAction(2, "read_file", "test", "test.go"),
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", "fixed"),
-			Args:      []string{"math.pl", "fixed"},
+			ActionKey: makeActionKey("write_file", "math.go", "fixed"),
+			Args:      []string{"math.go", "fixed"},
 			BaseHash:  contentHash("math"),
 			Result:    "file written successfully",
 			OK:        true,
 			Exit:      0,
 		},
 		completionAction(4, "git_diff", "diff"),
-		completionAction(5, "test", "PASS", "test.pl"),
+		completionAction(5, "test", "PASS", "test.go"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err != nil {
@@ -113,7 +113,7 @@ func TestActionLedgerTransitionAllowsLegacyRecords(t *testing.T) {
 	ledger := []ActionRecord{
 		{
 			Iteration: 4,
-			Tool:      "write_file:math.pl",
+			Tool:      "write_file:math.go",
 			Result:    "file written successfully",
 			OK:        true,
 			Exit:      0,
@@ -127,9 +127,9 @@ func TestActionLedgerTransitionAllowsLegacyRecords(t *testing.T) {
 
 func TestActionLedgerTransitionRejectsWriteToUnreadFile(t *testing.T) {
 	ledger := []ActionRecord{
-		completionAction(1, "inspect_project", "math.pl\ntest.pl"),
-		completionAction(2, "read_file", "test source", "test.pl"),
-		completionAction(3, "write_file", "write completed", "math.pl", "fixed"),
+		completionAction(1, "inspect_project", "math.go\ntest.go"),
+		completionAction(2, "read_file", "test source", "test.go"),
+		completionAction(3, "write_file", "write completed", "math.go", "fixed"),
 	}
 
 	if err := validateActionLedgerTransitionIntegrity(ledger); err == nil {
@@ -145,13 +145,13 @@ func TestActionLedgerTransitionAcceptsSnapshotAnchoredRewrite(t *testing.T) {
 		completionAction(
 			1,
 			"inspect_project",
-			"math.pl\ntest.pl",
+			"math.go\ntest.go",
 		),
 		{
 			Iteration: 2,
 			Tool:      "read_file",
-			ActionKey: makeActionKey("read_file", "math.pl"),
-			Args:      []string{"math.pl"},
+			ActionKey: makeActionKey("read_file", "math.go"),
+			Args:      []string{"math.go"},
 			Result:    oldContent,
 			OK:        true,
 			Exit:      0,
@@ -159,8 +159,8 @@ func TestActionLedgerTransitionAcceptsSnapshotAnchoredRewrite(t *testing.T) {
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", newContent),
-			Args:      []string{"math.pl", newContent},
+			ActionKey: makeActionKey("write_file", "math.go", newContent),
+			Args:      []string{"math.go", newContent},
 			BaseHash:  contentHash(oldContent),
 			Result:    "write completed",
 			OK:        true,
@@ -181,13 +181,13 @@ func TestActionLedgerTransitionRejectsMismatchedSnapshotAnchor(t *testing.T) {
 		completionAction(
 			1,
 			"inspect_project",
-			"math.pl\ntest.pl",
+			"math.go\ntest.go",
 		),
 		{
 			Iteration: 2,
 			Tool:      "read_file",
-			ActionKey: makeActionKey("read_file", "math.pl"),
-			Args:      []string{"math.pl"},
+			ActionKey: makeActionKey("read_file", "math.go"),
+			Args:      []string{"math.go"},
 			Result:    oldContent,
 			OK:        true,
 			Exit:      0,
@@ -195,8 +195,8 @@ func TestActionLedgerTransitionRejectsMismatchedSnapshotAnchor(t *testing.T) {
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", newContent),
-			Args:      []string{"math.pl", newContent},
+			ActionKey: makeActionKey("write_file", "math.go", newContent),
+			Args:      []string{"math.go", newContent},
 			BaseHash:  contentHash("tampered snapshot\n"),
 			Result:    "write completed",
 			OK:        true,
@@ -217,13 +217,13 @@ func TestActionLedgerTransitionRejectsWriteWithoutSnapshotAnchor(t *testing.T) {
 		completionAction(
 			1,
 			"inspect_project",
-			"math.pl\ntest.pl",
+			"math.go\ntest.go",
 		),
 		{
 			Iteration: 2,
 			Tool:      "read_file",
-			ActionKey: makeActionKey("read_file", "math.pl"),
-			Args:      []string{"math.pl"},
+			ActionKey: makeActionKey("read_file", "math.go"),
+			Args:      []string{"math.go"},
 			Result:    oldContent,
 			OK:        true,
 			Exit:      0,
@@ -231,8 +231,8 @@ func TestActionLedgerTransitionRejectsWriteWithoutSnapshotAnchor(t *testing.T) {
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", newContent),
-			Args:      []string{"math.pl", newContent},
+			ActionKey: makeActionKey("write_file", "math.go", newContent),
+			Args:      []string{"math.go", newContent},
 			Result:    "write completed",
 			OK:        true,
 			Exit:      0,

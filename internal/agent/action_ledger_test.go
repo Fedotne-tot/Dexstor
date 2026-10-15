@@ -5,7 +5,7 @@ import "testing"
 func TestActionLedgerSkipsOnlyIdenticalSuccessfulAction(t *testing.T) {
 	a := &Agent{}
 
-	path := "math.pl"
+	path := "math.go"
 	content := "return 10;\n"
 	key := makeActionKey("write_file", path, content)
 
@@ -38,7 +38,7 @@ func TestActionLedgerSkipsOnlyIdenticalSuccessfulAction(t *testing.T) {
 func TestActionLedgerAllowsRetryAfterFailure(t *testing.T) {
 	a := &Agent{}
 
-	path := "math.pl"
+	path := "math.go"
 	content := "return 10;\n"
 	key := makeActionKey("write_file", path, content)
 
@@ -61,7 +61,7 @@ func TestActionLedgerAllowsRetryAfterFailure(t *testing.T) {
 func TestActionLedgerPersistsKeyInRecord(t *testing.T) {
 	a := &Agent{}
 
-	path := "math.pl"
+	path := "math.go"
 	content := "return 10;\n"
 	key := makeActionKey("write_file", path, content)
 

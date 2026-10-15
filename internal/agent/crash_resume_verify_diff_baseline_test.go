@@ -13,33 +13,38 @@ import (
 func TestCrashResumeVerifyDiffUsesPersistedBaseline(t *testing.T) {
 	root := t.TempDir()
 
-	initial := `sub add {
-	my ($a, $b) = @_;
-	return $a + $b;
+	initial := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-1;
 `
 
-	changed := `sub add {
-	my ($a, $b) = @_;
-	return 10;
+	changed := `package main
+
+func Add(a, b int) int {
+	return 10
 }
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
-	mathPath := filepath.Join(root, "math.pl")
-	testPath := filepath.Join(root, "test.pl")
+	mathPath := filepath.Join(root, "math.go")
+	testPath := filepath.Join(root, "test.go")
 
 	if err := os.WriteFile(mathPath, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
@@ -57,7 +62,7 @@ print "PASS\n";
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "DEXSTER Test"},
-		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "add", "math.go", "test.go"},
 		{"git", "-C", root, "commit", "-m", "initial state"},
 	}
 
@@ -78,17 +83,17 @@ print "PASS\n";
 
 	var baselineMathHash string
 	for _, file := range baseline.Files {
-		if file.Path == "math.pl" {
+		if file.Path == "math.go" {
 			baselineMathHash = file.Hash
 			break
 		}
 	}
 
 	if baselineMathHash == "" {
-		t.Fatal("math.pl missing from baseline ProjectIndex")
+		t.Fatal("math.go missing from baseline ProjectIndex")
 	}
 
-	task := "Change math.pl so add(2, 3) returns 10"
+	task := "Change math.go so add(2, 3) returns 10"
 
 	/*
 		Simulate the exact crash window already covered by
@@ -111,21 +116,21 @@ print "PASS\n";
 		ProjectIndex: baseline,
 
 		ReadFiles: map[string]string{
-			"math.pl": initial,
+			"math.go": initial,
 		},
 
 		PendingAction: &PendingAction{
 			Tool:     "write_file",
 			BaseHash: contentHash(initial),
 			Args: map[string]string{
-				"path":    "math.pl",
+				"path":    "math.go",
 				"content": changed,
 			},
 		},
 
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
+			"read_file:math.go",
 		},
 
 		ActionLedger: []ActionRecord{
@@ -133,15 +138,15 @@ print "PASS\n";
 				Iteration: 1,
 				Tool:      "inspect_project",
 				ActionKey: makeActionKey("inspect_project"),
-				Result:    "math.pl\ntest.pl",
+				Result:    "math.go\ntest.go",
 				OK:        true,
 				Exit:      0,
 			},
 			{
 				Iteration: 2,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "math.pl"),
-				Args:      []string{"math.pl"},
+				ActionKey: makeActionKey("read_file", "math.go"),
+				Args:      []string{"math.go"},
 				Result:    initial,
 				OK:        true,
 				Exit:      0,
@@ -192,7 +197,7 @@ print "PASS\n";
 	*/
 	var restoredMathHash string
 	for _, file := range resumed.ProjectIndex.Files {
-		if file.Path == "math.pl" {
+		if file.Path == "math.go" {
 			restoredMathHash = file.Hash
 			break
 		}
@@ -223,7 +228,7 @@ print "PASS\n";
 
 	foundModified := false
 	for _, path := range diff.Modified {
-		if path == "math.pl" {
+		if path == "math.go" {
 			foundModified = true
 			break
 		}
@@ -231,7 +236,7 @@ print "PASS\n";
 
 	if !foundModified {
 		t.Fatalf(
-			"expected math.pl in semantic Modified set, got %+v",
+			"expected math.go in semantic Modified set, got %+v",
 			diff,
 		)
 	}
