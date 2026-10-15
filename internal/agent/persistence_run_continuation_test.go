@@ -94,16 +94,21 @@ func main() {
 		switch n {
 		case 1:
 			/*
-				This is the only model call needed after restore:
-				REPAIR_READ is deterministic, then REPAIR_WRITE asks
-				the model for the actual write_file operation.
+				REPAIR_READ is deterministic (no model call). The
+				first model turn happens in REPAIR_WRITE and must
+				carry an explicit TOOL_CALL envelope; bare code is
+				rejected by the parser and triggers a corrective
+				NUDGE request instead of performing a write.
 			*/
-			response = `package main
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
 	return 10
 }
-`
+END_TOOL_CALL`
 		default:
 			t.Fatalf("unexpected Ollama request #%d", n)
 		}
