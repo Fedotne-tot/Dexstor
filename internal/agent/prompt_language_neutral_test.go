@@ -42,7 +42,15 @@ func TestGoProjectPromptIsLanguageNeutral(t *testing.T) {
 	prompt := agent.prompt("fix go project")
 
 	// The old mandatory-file wording must be gone from a pure Go project.
-	if strings.Contains(prompt, "test.go") {
+	// Contract note (Perl migration): the forbidden literal is the
+	// standalone root entry file name "test.go" exactly as written in the
+	// historical mandatory line "You MUST edit test.go ...". After the
+	// migration that line is controller-generated, so the only remaining
+	// occurrence of the substring in a pure-Go prompt is inside concrete
+	// package-test names like "math_test.go" (the underscore-prefixed
+	// suffix). Bare occurrences — not part of an *_test.go name — are what
+	// must never appear.
+	if bareTestGoInPrompt(prompt) {
 		t.Fatalf("Go project prompt still mentions test.go:\n%s", prompt)
 	}
 

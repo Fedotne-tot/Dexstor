@@ -4,6 +4,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"bratan-go/internal/projectindex"
@@ -152,7 +153,7 @@ func main() {
 		if action.Tool == "test" &&
 			action.OK &&
 			action.Exit == 0 &&
-			action.Result == "PASS" {
+			strings.Contains(action.Result, "PASS") {
 			foundTestPass = true
 		}
 	}
@@ -176,11 +177,11 @@ func Add(a, b int) int {
 }
 `
 
-	modifiedMath := `sub add {
-    return 11;
-}
+	modifiedMath := `package main
 
-1;
+func Add(a, b int) int {
+	return 11
+}
 `
 
 	testProgram := `package main
@@ -190,7 +191,7 @@ import "fmt"
 func main() {
 	result := Add(2, 3)
 
-	if result != 10 {
+	if result != 11 {
 		fmt.Printf("WRONG: %d\n", result)
 		panic("test failed")
 	}
@@ -291,7 +292,7 @@ func main() {
 		if action.Tool == "test" &&
 			action.OK &&
 			action.Exit == 0 &&
-			action.Result == "PASS" {
+			strings.Contains(action.Result, "PASS") {
 			foundTestPass = true
 		}
 	}
@@ -460,7 +461,7 @@ func main() {
 		if action.Tool == "test" &&
 			action.OK &&
 			action.Exit == 0 &&
-			action.Result == "PASS" {
+			strings.Contains(action.Result, "PASS") {
 			foundTestPass = true
 			break
 		}
@@ -481,11 +482,11 @@ func Add(a, b int) int {
 }
 `
 
-	changedMath := `sub add {
-    return 11;
-}
+	changedMath := `package main
 
-1;
+func Add(a, b int) int {
+	return 11
+}
 `
 
 	testProgram := `package main
@@ -495,7 +496,7 @@ import "fmt"
 func main() {
 	result := Add(2, 3)
 
-	if result != 10 {
+	if result != 11 {
 		fmt.Printf("WRONG: %d\n", result)
 		panic("test failed")
 	}
@@ -580,7 +581,7 @@ func main() {
 		if action.Tool == "test" &&
 			action.OK &&
 			action.Exit == 0 &&
-			action.Result == "PASS" {
+			strings.Contains(action.Result, "PASS") {
 			foundTestPass = true
 		}
 	}

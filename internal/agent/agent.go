@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"bratan-go/internal/dependencygraph"
@@ -84,20 +85,67 @@ func (a *Agent) prompt(task string) string {
 // hasPackageTests reports whether the project contains at least one
 // "*_test.go" package test file at its root or one level down.
 func (a *Agent) hasPackageTests() bool {
+	return len(a.packageTestFiles()) > 0
+}
+
+// packageTestFiles lists the "*_test.go" package test files discovered on
+// disk (project root plus internal/ and pkg/ subdirectories), relative to
+// the project root, in deterministic order. It backs the explicit
+// prompt marker for package-test projects; the underscore-prefixed suffix
+// form never introduces the forbidden "test.go" substring into prompts for
+// pure-Go projects.
+func (a *Agent) packageTestFiles() []string {
 	root := a.Root
 	if root == "" {
 		root = "."
 	}
+	var found []string
+	seen := map[string]bool{}
 	for _, dir := range []string{root, filepath.Join(root, "internal"), filepath.Join(root, "pkg")} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
-				return true
+			if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+				continue
+			}
+			rel := e.Name()
+			if dir != root {
+				sub, err := filepath.Rel(root, dir)
+				if err == nil {
+					rel = filepath.ToSlash(filepath.Join(sub, e.Name()))
+				}
+			}
+			if !seen[rel] {
+				seen[rel] = true
+				found = append(found, rel)
 			}
 		}
+	}
+	sort.Strings(found)
+	return found
+}
+
+// bareTestGoInPrompt reports whether a prompt contains the bare legacy
+// standalone root entry file name "test.go" — an occurrence that is NOT
+// part of an underscore-prefixed package-test name such as
+// "math_test.go" or the wildcard "*_test.go". Pure-Go prompts must never
+// name the legacy entry file directly (language-neutrality contract),
+// while concrete *_test.go names are allowed and expected.
+func bareTestGoInPrompt(prompt string) bool {
+	const needle = "test.go"
+	for i := 0; i+len(needle) <= len(prompt); {
+		idx := strings.Index(prompt[i:], needle)
+		if idx < 0 {
+			return false
+		}
+		pos := i + idx
+		prevIsUnderscore := pos >= 1 && prompt[pos-1] == '_'
+		if !prevIsUnderscore {
+			return true
+		}
+		i = pos + len(needle)
 	}
 	return false
 }
@@ -252,11 +300,17 @@ func (a *Agent) promptWithTestEntry(task string, includeTestEntry bool) string {
 	b.WriteString("Do not assume a fixed test file name; use the file listed in PROJECT INDEX or FILES ALREADY READ.\n")
 
 	b.WriteString("Recognized project test files: Go -> package tests whose file names end with the underscore-test dot-go suffix, plus an optional root-level test entry file runnable as a standalone program.\n")
-	if a.hasPackageTests() {
-		// Explicit marker for package-test projects. It is emitted only
-		// when such files exist on disk, so legacy-style prompts never
-		// contain the literal (prompt-language-neutrality contract).
-		b.WriteString("Detected package test files (*_test.go) in this project.\n")
+	if pkgTests := a.packageTestFiles(); len(pkgTests) > 0 {
+		/*
+			Explicit marker for package-test projects, listing the actual
+			file names discovered on disk. The wildcard spelling "*_test.go"
+			is required by the language-neutrality contract (the test checks
+			for its presence); the forbidden literal is the bare standalone
+			root entry file name "test.go", which never appears in this
+			section because every listed name carries the underscore-test
+			suffix.
+		*/
+		b.WriteString("Detected package test files (*_test.go: " + strings.Join(pkgTests, ", ") + ") in this project.\n")
 	}
 	// Name the detected entry file explicitly only when it exists on disk
 	// AND the project is not a pure-Go package-test project. A root file
@@ -1230,6 +1284,21 @@ func (a *Agent) Run(task string) error {
 
 			if result.Output != "" {
 				fmt.Print(result.Output)
+			}
+
+			/*
+				Silent failure contract: a failed test that produced no
+				diagnostics gives the controller no repair marker to act on.
+				Instead of looping through REPAIR_READ/REPAIR_WRITE toward the
+				model with an empty error text, block completion right here so
+				resumed checkpoints terminate deterministically without any
+				network request.
+			*/
+			if !result.OK && result.Output == "" {
+				return fmt.Errorf(
+					"completion blocked: test failed silently with no output (exit %d)",
+					result.Exit,
+				)
 			}
 
 			a.LastTestError = result.Output
