@@ -139,22 +139,22 @@ name: inspect_project
 END_TOOL_CALL`
 
 		case "IMPLEMENT":
-		// The controller needs two distinct reads before it can
-		// transition IMPLEMENT -> WRITE_REQUIRED. Read the test entry
-		// point first, then the repair target.
-		if strings.Contains(req.Prompt, "--- FILE: math.go") {
-			response = `TOOL_CALL
+			// The controller needs two distinct reads before it can
+			// transition IMPLEMENT -> WRITE_REQUIRED. Read the test entry
+			// point first, then the repair target.
+			if strings.Contains(req.Prompt, "--- FILE: math.go") {
+				response = `TOOL_CALL
 name: read_file
 path: test.go
 END_TOOL_CALL`
-		} else {
-			response = `TOOL_CALL
+			} else {
+				response = `TOOL_CALL
 name: read_file
 path: math.go
 END_TOOL_CALL`
-		}
+			}
 
-	case "WRITE_REQUIRED", "REPAIR_WRITE":
+		case "WRITE_REQUIRED", "REPAIR_WRITE":
 			response = `TOOL_CALL
 name: write_file
 path: math.go

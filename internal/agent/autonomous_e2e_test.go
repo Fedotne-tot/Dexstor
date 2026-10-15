@@ -126,7 +126,7 @@ func Add(a, b int) int {
 
 		default:
 			// Deterministic states should never ask the model; an inert
-				// inspect call gets blocked without being recorded.
+			// inspect call gets blocked without being recorded.
 			response = `TOOL_CALL
 name: inspect_project`
 		}

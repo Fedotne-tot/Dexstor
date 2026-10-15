@@ -52,7 +52,8 @@ func New(root string) *Router {
 	}
 }
 
-func (r *Router) Exists(path string) bool {	abs, err := r.safePath(path)
+func (r *Router) Exists(path string) bool {
+	abs, err := r.safePath(path)
 	if err != nil {
 		return false
 	}
@@ -124,6 +125,13 @@ func (r *Router) safePath(path string) (string, error) {
 	}
 
 	return abs, nil
+}
+
+// IsProtected reports whether the given path resolves to a protected file
+// (root test program / *_test.go artifacts). Exported for cross-package
+// preflight checks in the agent FSM (Perl→Go migration contract).
+func (r *Router) IsProtected(path string) bool {
+	return r.isProtected(path)
 }
 
 func (r *Router) isProtected(path string) bool {
