@@ -99,47 +99,63 @@ func main() {
 		n := requests
 		mu.Unlock()
 
+		// State-based mock (Perl migration): FSM path depends on the controller
+		// state advertised in the prompt. The deliberately invalid git_diff call
+		// in IMPLEMENT is blocked by the controller and re-asks the model, so a
+		// fixed request counter cannot describe this run; per-state responses can.
+		state := "UNKNOWN"
+		for _, marker := range []string{"Current state is: ", "Current state: "} {
+			if i := strings.Index(req.Prompt, marker); i >= 0 {
+				rest := req.Prompt[i+len(marker):]
+				if j := strings.IndexByte(rest, '\n'); j >= 0 {
+					state = rest[:j]
+				} else {
+					state = rest
+				}
+				break
+			}
+		}
+
 		var response string
 
-		switch n {
-		case 1:
+		switch state {
+		case "DISCOVER":
 			response = `TOOL_CALL
-name: inspect_project`
+name: inspect_project
+END_TOOL_CALL`
 
-		case 2:
-			// Deliberately invalid for StateImplement.
-			response = `TOOL_CALL
-name: git_diff`
-
-		case 3:
-			response = `TOOL_CALL
+		case "IMPLEMENT":
+			if n == 2 {
+				// Deliberately invalid for StateImplement: must be blocked
+				// and recovered without breaking the FSM.
+				response = `TOOL_CALL
+name: git_diff
+END_TOOL_CALL`
+			} else if strings.Contains(req.Prompt, "--- FILE: math.go") {
+				response = `TOOL_CALL
 name: read_file
-arg: math.go`
-
-		case 4:
-			response = `TOOL_CALL
+path: test.go
+END_TOOL_CALL`
+			} else {
+				response = `TOOL_CALL
 name: read_file
-arg: test.go`
+path: math.go
+END_TOOL_CALL`
+			}
 
-		case 5:
-			response = `package main
+		case "WRITE_REQUIRED", "REPAIR_WRITE":
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
-	return 10
+    return 10
 }
-`
-
-		case 6:
-			response = `TOOL_CALL
-name: git_diff`
-
-		case 7:
-			response = `TOOL_CALL
-name: test
-path: test.go`
+END_TOOL_CALL`
 
 		default:
-			t.Fatalf("unexpected Ollama request #%d", n)
+			t.Fatalf("unexpected Ollama request #%d in state %s", n, state)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -172,7 +188,7 @@ path: test.go`
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 

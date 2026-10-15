@@ -94,23 +94,41 @@ func main() {
 
 		var response string
 
-		switch (n - 1) % 3 {
-		case 0:
+		/*
+			State-based mock: the FSM reacts to the "Current state:" marker
+			embedded in the production prompt instead of request numbers.
+			WRITE_REQUIRED must answer with a write_file TOOL_CALL; bare Go
+			code is not a tool call and gets blocked forever in that state.
+		*/
+		_ = n
+
+		switch {
+		case strings.Contains(req.Prompt, "Current state: DISCOVER"):
 			response = `TOOL_CALL
 name: inspect_project`
 
-		case 1:
+		case strings.Contains(req.Prompt, "Current state: IMPLEMENT"),
+			strings.Contains(req.Prompt, "Current state is: IMPLEMENT"):
 			response = `TOOL_CALL
 name: read_file
 arg: math.go`
 
-		case 2:
-			response = `package main
+		case strings.Contains(req.Prompt, "Current state: WRITE_REQUIRED"):
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
 	return 10
 }
 `
+
+		default:
+			// Deterministic states should never ask the model; an inert
+			// inspect call gets blocked without being recorded.
+			response = `TOOL_CALL
+name: inspect_project`
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -151,7 +169,7 @@ func Add(a, b int) int {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("first run did not repair math.go:\n%s", data)
 	}
 
@@ -168,14 +186,14 @@ func Add(a, b int) int {
 		t.Fatalf("persisted state: expected DONE, got %s", state.State)
 	}
 
-	if state.Iteration != 5 {
+	if state.Iteration != 6 {
 		t.Fatalf("persisted state: expected iteration 6, got %d", state.Iteration)
 	}
 
 	firstRunRequests := requests
 
-	if firstRunRequests != 3 {
-		t.Fatalf("first run: expected 3 Ollama requests, got %d", firstRunRequests)
+	if firstRunRequests != 4 {
+		t.Fatalf("first run: expected 4 Ollama requests, got %d", firstRunRequests)
 	}
 
 	// ------------------------------------------------------------------
@@ -184,8 +202,8 @@ func Add(a, b int) int {
 
 	brokenMath := strings.Replace(
 		string(data),
-		"return 10;",
-		"return $a + $b;",
+		"return 10",
+		"return 4",
 		1,
 	)
 
@@ -217,7 +235,7 @@ func Add(a, b int) int {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("second run did not repair externally changed math.go:\n%s", data)
 	}
 
@@ -236,8 +254,8 @@ func Add(a, b int) int {
 
 	totalRequests := requests
 
-	if totalRequests != 6 {
-		t.Fatalf("expected 6 total Ollama requests across two runs, got %d", totalRequests)
+	if totalRequests != 8 {
+		t.Fatalf("expected 8 total Ollama requests across two runs, got %d", totalRequests)
 	}
 
 	// Second run must have executed the full model-driven discovery path.

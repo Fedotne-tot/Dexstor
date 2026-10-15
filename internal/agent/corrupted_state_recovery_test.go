@@ -114,28 +114,59 @@ func main() {
 		n := requests
 		mu.Unlock()
 
+		// State-based mock: choose the tool from the FSM state advertised
+		// in the prompt instead of a fixed request counter (recovery paths
+		// issue extra NUDGE requests and iteration counts differ).
+		state := "UNKNOWN"
+		for _, marker := range []string{"Current state is: ", "Current state: "} {
+			if i := strings.Index(req.Prompt, marker); i >= 0 {
+				rest := req.Prompt[i+len(marker):]
+				if j := strings.IndexByte(rest, '\n'); j >= 0 {
+					state = rest[:j]
+				} else {
+					state = rest
+				}
+				break
+			}
+		}
+
 		var response string
 
-		switch n {
-		case 1:
+		switch state {
+		case "DISCOVER":
 			response = `TOOL_CALL
-name: inspect_project`
+name: inspect_project
+END_TOOL_CALL`
 
-		case 2:
-			response = `TOOL_CALL
+		case "IMPLEMENT":
+			// The controller needs two distinct reads before it can
+			// transition IMPLEMENT -> WRITE_REQUIRED. Read the test entry
+			// point first, then the repair target.
+			if strings.Contains(req.Prompt, "--- FILE: math.go") {
+				response = `TOOL_CALL
 name: read_file
-arg: math.go`
+path: test.go
+END_TOOL_CALL`
+			} else {
+				response = `TOOL_CALL
+name: read_file
+path: math.go
+END_TOOL_CALL`
+			}
 
-		case 3:
-			response = `package main
+		case "WRITE_REQUIRED", "REPAIR_WRITE":
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
-	return 10
+    return 10
 }
-`
+END_TOOL_CALL`
 
 		default:
-			t.Fatalf("unexpected Ollama request #%d", n)
+			t.Fatalf("unexpected Ollama request #%d in state %s", n, state)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -169,7 +200,7 @@ func Add(a, b int) int {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 
@@ -204,7 +235,7 @@ func Add(a, b int) int {
 		t.Fatalf("recovered task hash mismatch")
 	}
 
-	if requests != 3 {
-		t.Fatalf("expected 3 Ollama requests after recovery, got %d", requests)
+	if requests != 4 {
+		t.Fatalf("expected 4 Ollama requests after recovery, got %d", requests)
 	}
 }

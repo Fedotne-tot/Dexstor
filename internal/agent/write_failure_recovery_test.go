@@ -37,7 +37,7 @@ func main() {
 
 	if err := os.WriteFile(
 		filepath.Join(root, "math.go"),
-		[]byte("sub add { return 5; }\n1;\n"),
+		[]byte("package main\n\nfunc Add(a, b int) int {\n\treturn a + b\n}\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
@@ -98,24 +98,41 @@ path: test.go
 END_TOOL_CALL`
 
 		case 3:
-			response = `package main
+			// NUDGE (state-based): the model produced bare code in
+			// IMPLEMENT; the controller asks again for a TOOL_CALL.
+			response = `TOOL_CALL
+name: read_file
+path: math.go
+END_TOOL_CALL`
 
-import "fmt"
+		case 4:
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
-func main() {
-	result := Add(2, 3)
-
-	if result != 10 {
-		fmt.Printf("WRONG: %d\n", result)
-		panic("test failed")
-	}
-
-	fmt.Println("PASS")
+func Add(a, b int) int {
+	return 5
 }
-`
+END_TOOL_CALL`
 
 		default:
-			t.Fatalf("unexpected Ollama request #%d", n)
+			// REPAIR_WRITE turn: the model proposes to repair the
+			// protected root test file (test.go is the Go successor
+			// of the historical protected test.pl). The Router must
+			// reject the write ("protected file cannot be modified")
+			// and the controller must stop the run with a
+			// "write_file failed" error instead of retrying forever
+			// through the model.
+			response = `TOOL_CALL
+name: write_file
+path: test.go
+content: package main
+
+func main() {
+	panic("silent")
+}
+END_TOOL_CALL`
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -147,9 +164,9 @@ func main() {
 		)
 	}
 
-	if requests != 3 {
+	if requests != 4 {
 		t.Fatalf(
-			"expected exactly 3 Ollama requests, got %d",
+			"expected exactly 4 Ollama requests, got %d",
 			requests,
 		)
 	}

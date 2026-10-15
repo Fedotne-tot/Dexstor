@@ -75,29 +75,48 @@ func main() {
 		n := requests
 		mu.Unlock()
 
+		// State-based mock (Perl migration): the FSM path depends on the
+		// controller state advertised in the prompt, not a fixed request counter.
+		state := "UNKNOWN"
+		for _, marker := range []string{"Current state is: ", "Current state: "} {
+			if i := strings.Index(req.Prompt, marker); i >= 0 {
+				rest := req.Prompt[i+len(marker):]
+				if j := strings.IndexByte(rest, '\n'); j >= 0 {
+					state = rest[:j]
+				} else {
+					state = rest
+				}
+				break
+			}
+		}
+
 		var response string
 
-		switch n {
-		case 1:
+		switch state {
+		case "DISCOVER":
 			response = `TOOL_CALL
-name: inspect_project`
+name: inspect_project
+END_TOOL_CALL`
 
-		case 2:
+		case "IMPLEMENT":
 			response = `TOOL_CALL
 name: read_file
-arg: math.go`
+path: math.go
+END_TOOL_CALL`
 
-		case 3:
-			response = `package main
+		case "WRITE_REQUIRED", "REPAIR_WRITE":
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
-	return 10
+    return 10
 }
-`
+END_TOOL_CALL`
 
 		default:
-			response = `TOOL_CALL
-name: inspect_project`
+			t.Fatalf("unexpected Ollama request #%d in state %s", n, state)
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -130,7 +149,7 @@ name: inspect_project`
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 

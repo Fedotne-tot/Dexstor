@@ -89,16 +89,51 @@ arg: math.go`
 
 				The controller must not force another read merely
 				because len(ReadFiles) == 1.
+
+				State-based FSM contract (Perl→Go migration): in
+				WRITE_REQUIRED the model must answer with a
+				write_file TOOL_CALL; bare code without TOOL_CALL
+				triggers the corrective NUDGE request (#4).
+
+				The written content fixes the task target: the model
+				returns 10 instead of a + b, which is an observable
+				project change for VERIFY_DIFF and matches the final
+				math.go assertion below.
 			*/
-			response = `package main
+			response = `TOOL_CALL
+name: write_file
+path: math.go
+content: package main
 
 func Add(a, b int) int {
-	return a + b
+	return 10
 }
-`
+END_TOOL_CALL`
 
 		default:
-			t.Fatalf("unexpected Ollama request #%d", requests)
+			switch requests {
+			case 4:
+				// REPAIR_WRITE turn after the deterministic TEST phase
+				// found no runnable test target in this single-file
+				// project. The corrective repair writes a Go package
+				// test matching the fixed implementation.
+				response = `TOOL_CALL
+name: write_file
+path: math_test.go
+content: package main
+
+import "testing"
+
+func TestAdd(t *testing.T) {
+	if Add(2, 3) != 10 {
+		t.Fatalf("Add(2,3) = %d, want 10", Add(2, 3))
+	}
+}
+END_TOOL_CALL`
+
+			default:
+				t.Fatalf("unexpected Ollama request #%d", requests)
+			}
 		}
 
 		w.Header().Set("Content-Type", "application/json")

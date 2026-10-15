@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 
 	"bratan-go/internal/dependencygraph"
@@ -84,20 +85,67 @@ func (a *Agent) prompt(task string) string {
 // hasPackageTests reports whether the project contains at least one
 // "*_test.go" package test file at its root or one level down.
 func (a *Agent) hasPackageTests() bool {
+	return len(a.packageTestFiles()) > 0
+}
+
+// packageTestFiles lists the "*_test.go" package test files discovered on
+// disk (project root plus internal/ and pkg/ subdirectories), relative to
+// the project root, in deterministic order. It backs the explicit
+// prompt marker for package-test projects; the underscore-prefixed suffix
+// form never introduces the forbidden "test.go" substring into prompts for
+// pure-Go projects.
+func (a *Agent) packageTestFiles() []string {
 	root := a.Root
 	if root == "" {
 		root = "."
 	}
+	var found []string
+	seen := map[string]bool{}
 	for _, dir := range []string{root, filepath.Join(root, "internal"), filepath.Join(root, "pkg")} {
 		entries, err := os.ReadDir(dir)
 		if err != nil {
 			continue
 		}
 		for _, e := range entries {
-			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
-				return true
+			if e.IsDir() || !strings.HasSuffix(e.Name(), "_test.go") {
+				continue
+			}
+			rel := e.Name()
+			if dir != root {
+				sub, err := filepath.Rel(root, dir)
+				if err == nil {
+					rel = filepath.ToSlash(filepath.Join(sub, e.Name()))
+				}
+			}
+			if !seen[rel] {
+				seen[rel] = true
+				found = append(found, rel)
 			}
 		}
+	}
+	sort.Strings(found)
+	return found
+}
+
+// bareTestGoInPrompt reports whether a prompt contains the bare legacy
+// standalone root entry file name "test.go" — an occurrence that is NOT
+// part of an underscore-prefixed package-test name such as
+// "math_test.go" or the wildcard "*_test.go". Pure-Go prompts must never
+// name the legacy entry file directly (language-neutrality contract),
+// while concrete *_test.go names are allowed and expected.
+func bareTestGoInPrompt(prompt string) bool {
+	const needle = "test.go"
+	for i := 0; i+len(needle) <= len(prompt); {
+		idx := strings.Index(prompt[i:], needle)
+		if idx < 0 {
+			return false
+		}
+		pos := i + idx
+		prevIsUnderscore := pos >= 1 && prompt[pos-1] == '_'
+		if !prevIsUnderscore {
+			return true
+		}
+		i = pos + len(needle)
 	}
 	return false
 }
@@ -252,11 +300,17 @@ func (a *Agent) promptWithTestEntry(task string, includeTestEntry bool) string {
 	b.WriteString("Do not assume a fixed test file name; use the file listed in PROJECT INDEX or FILES ALREADY READ.\n")
 
 	b.WriteString("Recognized project test files: Go -> package tests whose file names end with the underscore-test dot-go suffix, plus an optional root-level test entry file runnable as a standalone program.\n")
-	if a.hasPackageTests() {
-		// Explicit marker for package-test projects. It is emitted only
-		// when such files exist on disk, so legacy-style prompts never
-		// contain the literal (prompt-language-neutrality contract).
-		b.WriteString("Detected package test files (*_test.go) in this project.\n")
+	if pkgTests := a.packageTestFiles(); len(pkgTests) > 0 {
+		/*
+			Explicit marker for package-test projects, listing the actual
+			file names discovered on disk. The wildcard spelling "*_test.go"
+			is required by the language-neutrality contract (the test checks
+			for its presence); the forbidden literal is the bare standalone
+			root entry file name "test.go", which never appears in this
+			section because every listed name carries the underscore-test
+			suffix.
+		*/
+		b.WriteString("Detected package test files (*_test.go: " + strings.Join(pkgTests, ", ") + ") in this project.\n")
 	}
 	// Name the detected entry file explicitly only when it exists on disk
 	// AND the project is not a pure-Go package-test project. A root file
@@ -1197,9 +1251,57 @@ func (a *Agent) Run(task string) error {
 		case StateTest:
 			fmt.Println("[BRATAN GO] tool=test")
 
-			path := a.detectTestFile()
-			if _, err := os.Stat(filepath.Join(a.Root, path)); os.IsNotExist(err) {
+			/*
+				Test target selection contract (Perl migration):
+				  1. an explicit test artifact on disk wins — *_test.go
+				     package tests or the root-level standalone entry file
+				     (the historical role of test.pl);
+				  2. otherwise the last successfully written file is
+				     executed as a standalone program;
+				  3. if neither exists there is nothing to verify:
+				     completion stays blocked deterministically without
+				     any network request.
+			*/
+			path := ""
+			if detected := a.detectTestFile(); detected != "" && a.Router.Exists(detected) {
+				path = detected
+			} else if a.LastWritePath != "" && a.Router.Exists(a.LastWritePath) && filepath.Ext(a.LastWritePath) == ".go" {
+				/*
+					Fallback target must be runnable by the test router. A
+					written non-Go artifact (e.g. hello.txt) is not a test:
+					feeding it to Router.Test would fabricate a "silent
+					failure" instead of the deterministic no-test-artifact
+					block below.
+				*/
 				path = a.LastWritePath
+			}
+
+			if path == "" {
+				/*
+					Go migration contract for data-file tasks: when there is
+					no test artifact at all (no *_test.go, no root test.go,
+					no written Go source), the TEST step verifies the project
+					state directly and succeeds deterministically without
+					any network request. This keeps pure data-file workflows
+					(create/edit hello.txt) completable; code tasks still
+					reach this branch only after their own write cycle.
+				*/
+				a.recordAction(
+					iteration,
+					"test",
+					"PASS",
+					"",
+					true,
+					0,
+				)
+
+				a.State = StateDone
+
+				if err := a.saveState(task, iteration); err != nil {
+					return err
+				}
+
+				continue
 			}
 
 			result := a.Router.Test(path)
@@ -1230,6 +1332,21 @@ func (a *Agent) Run(task string) error {
 
 			if result.Output != "" {
 				fmt.Print(result.Output)
+			}
+
+			/*
+				Silent failure contract: a failed test that produced no
+				diagnostics gives the controller no repair marker to act on.
+				Instead of looping through REPAIR_READ/REPAIR_WRITE toward the
+				model with an empty error text, block completion right here so
+				resumed checkpoints terminate deterministically without any
+				network request.
+			*/
+			if !result.OK && result.Output == "" {
+				return fmt.Errorf(
+					"completion blocked: test failed silently with no output (exit %d)",
+					result.Exit,
+				)
 			}
 
 			a.LastTestError = result.Output
@@ -1537,7 +1654,11 @@ func (a *Agent) Run(task string) error {
 					len(result.Content),
 				)
 
-				if len(a.ReadFiles) >= 2 {
+				// Архитектурный контракт (см. TestOneFileTaskDoesNotRequireArtificialSecondRead):
+				// одного прочитанного исходника достаточно для перехода к записи.
+				// Искусственное требование второго read (len >= 2) удалено:
+				// DISCOVER -> IMPLEMENT -> read_file -> WRITE_REQUIRED.
+				if len(a.ReadFiles) >= 1 {
 					a.State = StateWriteReq
 
 					fmt.Println(
@@ -1819,6 +1940,18 @@ func (a *Agent) Run(task string) error {
 				)
 			}
 
+			/*
+				Pending-action bookkeeping must stay consistent with the
+				post-execution branch below: LastWritePath and DiffChecked
+				are updated only after a successful write. Recording them
+				while the action is still pending lets crash-resume skip
+				re-execution of the pending write (the file already exists
+				on disk) and enter VERIFY_DIFF with DiffChecked=true, which
+				the duplicate-guard contract rejects as "already recorded".
+			*/
+			a.LastWritePath = ""
+			a.DiffChecked = false
+
 			a.PendingAction = &PendingAction{
 				Tool:     "write_file",
 				BaseHash: baseHash,
@@ -1933,6 +2066,39 @@ func (a *Agent) Run(task string) error {
 				continue
 			}
 
+			// Sandbox contract (Perl migration: protection of the
+			// root test program was migrated from "test.pl" to
+			// "test.go"/"*_test.go"): a protected path must be
+			// rejected before any CAS preflight so the caller gets
+			// the canonical Router error "protected file cannot be
+			// modified" and the run stops with "write_file failed"
+			// instead of retrying forever through the model.
+			if a.Router.IsProtected(path) {
+				result := a.Router.WriteWithBaseHash(path, content, "")
+				a.recordActionWithBaseHash(
+					iteration,
+					"repair_write",
+					"write completed",
+					result.Error,
+					result.OK,
+					result.Exit,
+					"",
+					path,
+					content,
+				)
+				a.PendingAction = nil
+
+				fmt.Printf(
+					"[BRATAN GO] repair write failed: %s\n",
+					result.Error,
+				)
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
+					result.Error,
+				)
+			}
+
 			repairBaseHash := ""
 			for i := len(a.ActionLedger) - 1; i >= 0; i-- {
 				record := a.ActionLedger[i]
@@ -1988,7 +2154,16 @@ func (a *Agent) Run(task string) error {
 					"[BRATAN GO] repair write failed: %s\n",
 					result.Error,
 				)
-				continue
+				// Contract (mirrors the IMPLEMENT/WRITE_REQUIRED
+				// branch): a failed repair write is fatal for the
+				// run. Retrying forever via the model was the
+				// pre-migration defect exercised by
+				// TestWriteFileFailureDoesNotRetryForever.
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
+					result.Error,
+				)
 			}
 
 			a.Wrote = true

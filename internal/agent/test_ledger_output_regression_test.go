@@ -480,13 +480,15 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 	root := t.TempDir()
 
 	/*
-		Silent failing test: perl dies with no output and a non-zero
-		exit. The ledger falls back to the coarse status, and because
-		a failed test without diagnostics gives the controller no
-		repair marker ("WRONG:"/"TEST FAILED"), validateCompletion must
-		block DONE instead of accepting a PASS-less completion.
+		Silent failing test: the Go equivalent of the historical Perl
+		"die;" with no diagnostics is a program that exits non-zero
+		with empty stdout/stderr. The ledger falls back to the coarse
+		status, and because a failed test without diagnostics gives the
+		controller no repair marker ("WRONG:"/"TEST FAILED"),
+		validateCompletion must block DONE instead of accepting a
+		PASS-less completion.
 	*/
-	silentContent := "die;\n"
+	silentContent := "package main\n\nimport \"os\"\n\nfunc main() {\n\tos.Exit(1)\n}\n"
 
 	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(silentContent), 0644); err != nil {
 		t.Fatal(err)
