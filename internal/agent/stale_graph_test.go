@@ -18,12 +18,10 @@ func TestDependencyGraphRebuildsAfterProjectChange(t *testing.T) {
 		}
 	}
 
-	write("math.pl", "1;\n")
-	write("other.pl", "1;\n")
+	write("math.go", "package main\n")
+	write("other.go", "package main\n")
 
-	write("test.pl", `require "./math.pl";
-1;
-`)
+	write("test.go", "package main\n\nimport \"./math.go\"\n\nfunc init() { _ = 1 }\n")
 
 	index1, err := projectindex.Build(root)
 	if err != nil {
@@ -32,15 +30,13 @@ func TestDependencyGraphRebuildsAfterProjectChange(t *testing.T) {
 
 	graph1 := dependencygraph.Build(index1)
 
-	deps := graph1.Dependencies("test.pl")
-	if len(deps) != 1 || deps[0] != "math.pl" {
-		t.Fatalf("initial dependency graph: got %v, want [math.pl]", deps)
+	deps := graph1.Dependencies("test.go")
+	if len(deps) != 1 || deps[0] != "math.go" {
+		t.Fatalf("initial dependency graph: got %v, want [math.go]", deps)
 	}
 
-	// Change the project: test.pl now depends on other.pl instead.
-	write("test.pl", `require "./other.pl";
-1;
-`)
+	// Change the project: test.go now depends on other.go instead.
+	write("test.go", "package main\n\nimport \"./other.go\"\n\nfunc init() { _ = 1 }\n")
 
 	index2, err := projectindex.Build(root)
 	if err != nil {
@@ -49,12 +45,12 @@ func TestDependencyGraphRebuildsAfterProjectChange(t *testing.T) {
 
 	graph2 := dependencygraph.Build(index2)
 
-	deps = graph2.Dependencies("test.pl")
-	if len(deps) != 1 || deps[0] != "other.pl" {
-		t.Fatalf("rebuilt dependency graph: got %v, want [other.pl]", deps)
+	deps = graph2.Dependencies("test.go")
+	if len(deps) != 1 || deps[0] != "other.go" {
+		t.Fatalf("rebuilt dependency graph: got %v, want [other.go]", deps)
 	}
 
-	if got := graph2.Dependencies("test.pl"); len(got) > 0 && got[0] == "math.pl" {
-		t.Fatalf("stale dependency math.pl remained after rebuild")
+	if got := graph2.Dependencies("test.go"); len(got) > 0 && got[0] == "math.go" {
+		t.Fatalf("stale dependency math.go remained after rebuild")
 	}
 }

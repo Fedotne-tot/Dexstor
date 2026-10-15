@@ -9,23 +9,21 @@ import (
 func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 	root := t.TempDir()
 
-	initial := `sub add {
-	my ($a, $b) = @_;
-	return $a + $b;
-}
+	initial := `package main
 
-1;
+func Add(a, b int) int {
+	return a + b
+}
 `
 
-	repaired := `sub add {
-	my ($a, $b) = @_;
-	return 10;
-}
+	repaired := `package main
 
-1;
+func Add(a, b int) int {
+	return 10
+}
 `
 
-	path := filepath.Join(root, "math.pl")
+	path := filepath.Join(root, "math.go")
 
 	if err := os.WriteFile(path, []byte(initial), 0644); err != nil {
 		t.Fatal(err)
@@ -45,7 +43,7 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 		Tool:     "write_file",
 		BaseHash: contentHash(initial),
 		Args: map[string]string{
-			"path":    "math.pl",
+			"path":    "math.go",
 			"content": repaired,
 		},
 	}
@@ -58,7 +56,7 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 	original.ActionLedger = nil
 	original.History = nil
 
-	task := "Change math.pl so add(2, 3) returns 10"
+	task := "Change math.go so add(2, 3) returns 10"
 
 	if err := original.saveState(task, 3); err != nil {
 		t.Fatalf("save pending write checkpoint: %v", err)
@@ -100,16 +98,16 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 		t.Fatal("expected PendingAction to be cleared after recovery")
 	}
 
-	if resumed.LastWritePath != "math.pl" {
+	if resumed.LastWritePath != "math.go" {
 		t.Fatalf(
-			"expected recovered LastWritePath math.pl, got %q",
+			"expected recovered LastWritePath math.go, got %q",
 			resumed.LastWritePath,
 		)
 	}
 
 	found := false
 	for _, entry := range resumed.History {
-		if entry == "write_file:math.pl" {
+		if entry == "write_file:math.go" {
 			found = true
 			break
 		}
@@ -141,7 +139,7 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 
 	/*
 		The recovered write must be represented using the canonical
-		v3 ActionLedger identity, not the old "write_file:math.pl"
+		v3 ActionLedger identity, not the old "write_file:math.go"
 		Tool encoding.
 	*/
 	foundWrite := false
@@ -155,7 +153,7 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 			continue
 		}
 
-		if entry.Args[0] != "math.pl" {
+		if entry.Args[0] != "math.go" {
 			continue
 		}
 
@@ -165,7 +163,7 @@ func TestCrashAfterPhysicalWriteDoesNotRepeatWrite(t *testing.T) {
 
 		if entry.ActionKey != makeActionKey(
 			"write_file",
-			"math.pl",
+			"math.go",
 			repaired,
 		) {
 			t.Fatalf("recovered write has invalid ActionKey: %q", entry.ActionKey)

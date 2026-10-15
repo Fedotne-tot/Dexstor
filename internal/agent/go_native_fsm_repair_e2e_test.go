@@ -37,7 +37,7 @@ Mock responses are selected by the "Current state:" marker embedded in the
 production prompt (prompt()/nudge()), so the mock never depends on request
 numbers or error texts — it reacts to FSM behaviour.
 
-Existing Perl fixtures (math.pl/test.pl) are intentionally untouched.
+Existing Perl fixtures (math.go/test.go) are intentionally untouched.
 */
 
 func TestGoNativeFSMRepairEndToEnd(t *testing.T) {
@@ -84,7 +84,7 @@ func Add(a, b int) int {
 		}
 	}
 
-	writeTask("go.mod", "module bratan_fixture\n\ngo 1.23\n")
+	writeTask("go.mod", "module bratan_fixture\n\ngo 1.22\n")
 	writeTask("math.go", brokenMath)
 	writeTask("math_test.go", mathTest)
 

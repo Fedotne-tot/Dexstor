@@ -15,34 +15,54 @@ import (
 	"bratan-go/internal/tools"
 )
 
+// Perl migration: this fixture used to drive the FSM with math.pl/test.pl
+// executed by a Perl interpreter. The equivalent Go fixtures below keep the
+// exact same FSM contract:
+//   - IMPLEMENT accepts one read_file before WRITE_REQUIRED;
+//   - a failing TEST names the repaired source ("WRONG: 5") so
+//     failedSourcePath resolves the repair target;
+//   - the repair write is idempotent on disk, so the controller records it
+//     as a duplicate successful repair_write and proceeds deterministically;
+//   - VERIFY_DIFF semantic snapshot detects the modified math.go;
+//   - final TEST PASS carries the literal "PASS" marker in full output.
 func TestRunRepairCycle(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
-	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(math), 0644); err != nil {
+	brokenMath := `package main
+
+func Add(a, b int) int {
+	return 10
+}
+`
+
+	if err := os.WriteFile(filepath.Join(root, "math.go"), []byte(math), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "test.pl"), []byte(testProgram), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(testProgram), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -52,13 +72,13 @@ print "PASS\n";
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "BRATAN Test"},
-		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "add", "math.go", "test.go"},
 		{"git", "-C", root, "commit", "-m", "initial test state"},
 	}
 
 	for _, cmd := range gitCommands {
 		if output, err := exec.Command(cmd[0], cmd[1:]...).CombinedOutput(); err != nil {
-			t.Fatalf("%v failed: %v\\n%s", cmd, err, output)
+			t.Fatalf("%v failed: %v\n%s", cmd, err, output)
 		}
 	}
 
@@ -96,39 +116,21 @@ name: inspect_project`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-arg: math.pl`
+arg: math.go`
 		case 3:
 			response = `TOOL_CALL
 name: read_file
-arg: test.pl`
+arg: test.go`
 		case 4:
 			response = `TOOL_CALL
 name: write_file
-path: math.pl
-content: sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
-}
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
-`
+path: math.go
+content: ` + math
 		case 5:
 			response = `TOOL_CALL
 name: write_file
-path: math.pl
-content: sub add {
-    my ($a, $b) = @_;
-    return 10;
-}
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
-`
+path: math.go
+content: ` + brokenMath
 		default:
 			t.Fatalf("unexpected Ollama request #%d", n)
 		}
@@ -141,26 +143,27 @@ our @EXPORT_OK = qw(add);
 	defer server.Close()
 
 	agent := &Agent{
-		Model:  "test-model",
-		Max:    20,
-		Root:   root,
-		Router: tools.New(root),
-		Ollama: ollama.New(server.URL),
-		State:  StateDiscover,
+		Model:     "test-model",
+		Max:       20,
+		Root:      root,
+		Router:    tools.New(root),
+		Ollama:    ollama.New(server.URL),
+		State:     StateDiscover,
+		ReadFiles: make(map[string]string),
 	}
 
-	err := agent.Run("Fix math.pl so add(2, 3) returns 10")
+	err := agent.Run("Fix math.go so Add(2, 3) returns 10")
 	if err != nil {
 		t.Fatalf("repair cycle failed: %v", err)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	data, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
-		t.Fatalf("final math.pl is not repaired:\n%s", data)
+	if !strings.Contains(string(data), "return 10") {
+		t.Fatalf("final math.go is not repaired:\n%s", data)
 	}
 
 	if agent.State != StateDone {

@@ -46,7 +46,7 @@ func findTestRecords(a *Agent) []ActionRecord {
 	return records
 }
 
-// newFailingProject creates math.pl + test.pl where add(2,3)=5 but the
+// newFailingProject creates math.go + test.go where add(2,3)=5 but the
 // test demands 10, exactly like run_repair_test.go. The failure marker
 // "WRONG: 5" lives only inside the perl diagnostics, never in the
 // coarse PASS/FAIL status.
@@ -55,31 +55,34 @@ func newFailingProject(t *testing.T) string {
 
 	root := t.TempDir()
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
-	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(math), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "math.go"), []byte(math), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "test.pl"), []byte(testProgram), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(testProgram), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -92,7 +95,7 @@ print "PASS\n";
 func persistTestCheckpoint(t *testing.T, root, task string) *TaskState {
 	t.Helper()
 
-	mathData, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	mathData, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -115,21 +118,21 @@ func persistTestCheckpoint(t *testing.T, root, task string) *TaskState {
 		ProjectIndex: index,
 
 		ReadFiles: map[string]string{
-			"math.pl": mathContent,
+			"math.go": mathContent,
 		},
 		FileHashes: map[string]string{
-			"math.pl": contentHash(mathContent),
+			"math.go": contentHash(mathContent),
 		},
-		ChangedFiles: []string{"math.pl"},
+		ChangedFiles: []string{"math.go"},
 
-		LastWritePath: "math.pl",
+		LastWritePath: "math.go",
 
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"write_file:math.go",
 			"git_diff",
-			"test:test.pl",
+			"test:test.go",
 		},
 		ActionLedger: []ActionRecord{
 			{
@@ -143,8 +146,8 @@ func persistTestCheckpoint(t *testing.T, root, task string) *TaskState {
 			{
 				Iteration: 2,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "math.pl"),
-				Args:      []string{"math.pl"},
+				ActionKey: makeActionKey("read_file", "math.go"),
+				Args:      []string{"math.go"},
 				Result:    mathContent,
 				OK:        true,
 				Exit:      0,
@@ -158,8 +161,8 @@ func persistTestCheckpoint(t *testing.T, root, task string) *TaskState {
 			{
 				Iteration: 2,
 				Tool:      "write_file",
-				ActionKey: makeActionKey("write_file", "math.pl", mathContent),
-				Args:      []string{"math.pl", mathContent},
+				ActionKey: makeActionKey("write_file", "math.go", mathContent),
+				Args:      []string{"math.go", mathContent},
 				BaseHash:  contentHash(mathContent),
 				Result:    "ok",
 				OK:        true,
@@ -169,15 +172,15 @@ func persistTestCheckpoint(t *testing.T, root, task string) *TaskState {
 				Iteration: 3,
 				Tool:      "git_diff",
 				ActionKey: makeActionKey("git_diff"),
-				Result:    "modified:\n  math.pl\n",
+				Result:    "modified:\n  math.go\n",
 				OK:        true,
 				Exit:      0,
 			},
 			{
 				Iteration: 4,
 				Tool:      "test",
-				ActionKey: makeActionKey("test", "test.pl"),
-				Args:      []string{"test.pl"},
+				ActionKey: makeActionKey("test", "test.go"),
+				Args:      []string{"test.go"},
 				/*
 					Buggy legacy shape: only the coarse status was
 					recorded here before the fix.
@@ -273,7 +276,7 @@ func newCheckpointAgent(t *testing.T, root string) *Agent {
 }
 
 func TestControllerStateTestRecordsFullOutputInLedger(t *testing.T) {
-	task := "Fix math.pl so add(2, 3) returns 10"
+	task := "Fix math.go so add(2, 3) returns 10"
 	root := newFailingProject(t)
 
 	persistTestCheckpoint(t, root, task)
@@ -328,7 +331,7 @@ func TestControllerStateTestRecordsFullOutputInLedger(t *testing.T) {
 		model responses, so the freshly recorded test entry is no longer
 		the last ledger record. Locate it by its ActionKey instead.
 	*/
-	testKey := makeActionKey("test", "test.pl")
+	testKey := makeActionKey("test", "test.go")
 
 	var saved []ActionRecord
 	for _, item := range agent.ActionLedger {
@@ -372,20 +375,16 @@ func TestControllerStateTestRecordsPassOutputInLedger(t *testing.T) {
 	/*
 		Success path: validators require "PASS" inside Result. The real
 		test output contains PASS, so completion stays reachable while
-		diagnostics are preserved. Repair math.pl so the test passes.
+		diagnostics are preserved. Repair math.go so the test passes.
 	*/
-	repaired := `sub add {
-    my ($a, $b) = @_;
-    return 10;
+	repaired := `package main
+
+func Add(a, b int) int {
+	return 10
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(repaired), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "math.go"), []byte(repaired), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -394,7 +393,7 @@ our @EXPORT_OK = qw(add);
 		the baseline reconcile compares against, and saveTaskState
 		validates every ledger record before writing.
 	*/
-	checkpoint.FileHashes["math.pl"] = contentHash(repaired)
+	checkpoint.FileHashes["math.go"] = contentHash(repaired)
 
 	if err := saveTaskState(root, checkpoint); err != nil {
 		t.Fatalf("re-anchor TEST checkpoint: %v", err)
@@ -489,22 +488,21 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 	*/
 	silentContent := "die;\n"
 
-	if err := os.WriteFile(filepath.Join(root, "test.pl"), []byte(silentContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(silentContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 
 	/*
-		The deterministic TEST state runs test.pl first; die aborts it
-		before the require below executes, so math.pl is only needed
+		The deterministic TEST state runs test.go first; die aborts it
+		before the require below executes, so math.go is only needed
 		for a passing run. Create it after the checkpoint is persisted
 		so reconcile keeps the TEST resume path intact.
 	*/
-	mathContent := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
-}
+	mathContent := `package main
 
-1;
+func Add(a, b int) int {
+	return a + b
+}
 `
 
 	index, err := projectindex.Build(root)
@@ -525,19 +523,19 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 		ProjectIndex: index,
 
 		ReadFiles: map[string]string{
-			"math.pl": mathContent,
+			"math.go": mathContent,
 		},
 		FileHashes: map[string]string{
-			"math.pl": contentHash(mathContent),
+			"math.go": contentHash(mathContent),
 		},
-		ChangedFiles: []string{"math.pl"},
+		ChangedFiles: []string{"math.go"},
 
-		LastWritePath: "math.pl",
+		LastWritePath: "math.go",
 
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"write_file:math.go",
 			"git_diff",
 		},
 		ActionLedger: []ActionRecord{
@@ -552,8 +550,8 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 			{
 				Iteration: 2,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "math.pl"),
-				Args:      []string{"math.pl"},
+				ActionKey: makeActionKey("read_file", "math.go"),
+				Args:      []string{"math.go"},
 				Result:    mathContent,
 				OK:        true,
 				Exit:      0,
@@ -567,8 +565,8 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 			{
 				Iteration: 2,
 				Tool:      "write_file",
-				ActionKey: makeActionKey("write_file", "math.pl", mathContent),
-				Args:      []string{"math.pl", mathContent},
+				ActionKey: makeActionKey("write_file", "math.go", mathContent),
+				Args:      []string{"math.go", mathContent},
 				BaseHash:  contentHash(mathContent),
 				Result:    "ok",
 				OK:        true,
@@ -578,7 +576,7 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 				Iteration: 3,
 				Tool:      "git_diff",
 				ActionKey: makeActionKey("git_diff"),
-				Result:    "modified:\n  math.pl\n",
+				Result:    "modified:\n  math.go\n",
 				OK:        true,
 				Exit:      0,
 			},
@@ -592,7 +590,7 @@ func TestControllerStateTestFallsBackToStatusOnEmptyOutput(t *testing.T) {
 		t.Fatalf("persist TEST checkpoint: %v", err)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(mathContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "math.go"), []byte(mathContent), 0644); err != nil {
 		t.Fatal(err)
 	}
 

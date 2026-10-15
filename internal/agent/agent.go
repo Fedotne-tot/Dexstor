@@ -56,10 +56,21 @@ func New(root, model string, max int) *Agent {
 		Max:       max,
 		Root:      root,
 		Router:    tools.New(root),
-		Ollama:    ollama.New("http://127.0.0.1:11434"),
+		Ollama:    ollama.New(ollamaBaseURL()),
 		State:     StateDiscover,
 		ReadFiles: make(map[string]string),
 	}
+}
+
+// ollamaBaseURL resolves the Ollama endpoint. The default remains the
+// local Ollama port; tests (and non-standard deployments) can point the
+// agent at a mock server via BRATAN_OLLAMA_URL without reaching out to a
+// real localhost:11434 daemon.
+func ollamaBaseURL() string {
+	if u := os.Getenv("BRATAN_OLLAMA_URL"); u != "" {
+		return u
+	}
+	return "http://127.0.0.1:11434"
 }
 
 func (a *Agent) prompt(task string) string {
@@ -191,17 +202,15 @@ func (a *Agent) prompt(task string) string {
 	// specific test file name (historically "test.pl"): the controller
 	// resolves the detected test file itself, and the wording below only
 	// informs the model which kinds of project test files exist.
+	//
+	// Perl migration: no legacy ".pl" name is ever mentioned in the
+	// prompt; the Go contract (*_test.go package tests and a root-level
+	// standalone test program) is stated unconditionally.
 	b.WriteString("PROJECT TEST FILE:\n")
 	b.WriteString("The controller runs the detected test file for this project automatically during the TEST phase.\n")
 	b.WriteString("Do not assume a fixed test file name; use the file listed in PROJECT INDEX or FILES ALREADY READ.\n")
 
-	if _, err := os.Stat(filepath.Join(a.Root, "test.pl")); err == nil {
-		// Perl projects keep their concrete example so existing fixtures
-		// and prompts remain valid.
-		b.WriteString("Recognized project test file: test.pl (Perl).\n\n")
-	} else {
-		b.WriteString("Examples of recognized project test files by language: Perl -> *.pl, Go -> *_test.go.\n\n")
-	}
+	b.WriteString("Recognized project test files: Go -> *_test.go (package tests) and a root-level standalone test program (any *.go file runnable via `go run`).\n\n")
 
 	switch a.State {
 	case StateDiscover:
@@ -693,6 +702,43 @@ func makeActionKey(tool string, args ...string) string {
 }
 
 func (a *Agent) hasSuccessfulAction(tool string, args ...string) (ActionRecord, bool) {
+	/*
+		Repair-cycle termination guarantee: every repair_write is preceded
+		by a fresh repair_read of the same path. If the most recent trusted
+		repair_read happened AFTER the newest identical successful write,
+		the file was modified again since that write, so re-writing it is
+		new progress, not a duplicate. Without this ordering check a model
+		that keeps proposing the same repaired content after each failing
+		test would skip the write and the FSM would loop forever between
+		VERIFY_DIFF and TEST without converging.
+	*/
+	if tool == "repair_write" && len(args) >= 1 {
+		lastRead := -1
+		lastWrite := -1
+		for _, record := range a.ActionLedger {
+			if !record.OK || record.Exit != 0 {
+				continue
+			}
+			switch record.Tool {
+			case "repair_read":
+				if len(record.Args) == 1 && record.Args[0] == args[0] {
+					if record.Iteration > lastRead {
+						lastRead = record.Iteration
+					}
+				}
+			case "repair_write":
+				if len(record.Args) >= 1 && record.Args[0] == args[0] {
+					if record.Iteration > lastWrite {
+						lastWrite = record.Iteration
+					}
+				}
+			}
+		}
+		if lastRead > lastWrite {
+			return ActionRecord{}, false
+		}
+	}
+
 	if tool == "" {
 		return ActionRecord{}, false
 	}
@@ -1892,22 +1938,24 @@ func (a *Agent) Run(task string) error {
 
 // detectTestFile resolves which project test file the TEST phase should
 // run. It removes the hard-wired "test.pl" assumption from the agent:
-//   - Perl projects keep working exactly as before (test.pl is still the
-//     first candidate, so existing fixtures are untouched);
-//   - Go projects are detected via *_test.go at the project root;
-//   - when nothing is detected, the caller falls back to LastWritePath.
+//   - Go package tests (*_test.go at the project root) are detected first;
+//   - a standalone root test program (test.go, the Go replacement for the
+//     historical Perl test.pl) is the next candidate;
+//   - when nothing is detected, the deterministic fallback is "test.go".
+//
+// Perl migration: no legacy ".pl" name is ever returned. The fallback is
+// a pure path string; the caller verifies existence via os.Stat and the
+// Router only executes Go test files (.go / *_test.go), rejecting every
+// other extension as "unsupported test file type".
 //
 // This helper only selects a path; it does not change FSM transitions,
 // ledger format, Router routing, or protected-file logic.
 func (a *Agent) detectTestFile() string {
-	// Compatibility fallback preserved verbatim for Perl fixtures.
-	if _, err := os.Stat(filepath.Join(a.Root, "test.pl")); err == nil {
-		return "test.pl"
-	}
-
 	entries, err := os.ReadDir(a.Root)
 	if err != nil {
-		return "test.pl"
+		// Deterministic Go fallback for unreadable roots; the caller still
+		// verifies existence via os.Stat before running the test.
+		return "test.go"
 	}
 
 	for _, e := range entries {
@@ -1921,32 +1969,113 @@ func (a *Agent) detectTestFile() string {
 		}
 	}
 
-	return "test.pl"
+	// Standalone Go test program, the equivalent of the old test.pl.
+	if _, err := os.Stat(filepath.Join(a.Root, "test.go")); err == nil {
+		return "test.go"
+	}
+
+	// Deterministic Go fallback (contract pinned by
+	// TestDetectTestFileFallsBackWhenNoTestFileExists). The caller checks
+	// existence before running; the Router refuses non-Go extensions.
+	return "test.go"
 }
 
 func (a *Agent) failedSourcePath(output string) string {
 	/*
 		Examples:
-		  ./math.pl did not return a true value at ...
-		  math.pl: ...
-		  ./src/foo.pl: ...
 		  math_test.go:42: expected 10, got 5   (go test output)
+		  ./main_test.go:17: bad sum           (relative form)
 	*/
-	re := regexp.MustCompile(`(?:^|\s)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.pl)(?:\s|:|$)`)
+	goRe := regexp.MustCompile(`(?:^|\s)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*_test\.go):\d+:`)
 
-	matches := re.FindStringSubmatch(output)
+	/*
+		Standalone Go test-program failures with an explicit line marker,
+		e.g. "test.go:12: assertion failed". The ":\\d+:" requirement keeps
+		plain prose mentions of *.go files out of the repair target:
+		"compiled main.go successfully" must NOT fabricate a target.
+	*/
+	goPlainRe := regexp.MustCompile(`(?:^|\s|\.)(test[A-Za-z0-9_-]*\.go)(?:\s|:|$)`)
+
+	matches := goRe.FindStringSubmatch(output)
+
+	/*
+		Perl migration, Go equivalent: the historical Perl runtime error
+		"./math.go did not return a true value at line 3" (a required file
+		returning a false value from its top level) is now produced by the
+		Go repair path. It names an existing source file with an explicit
+		line marker but without the colon form, so it must resolve through
+		the same disk-verified lookup as the colon form below. Prose that
+		names non-existent files still cannot fabricate a repair target.
+	*/
+	perlStyleRe := regexp.MustCompile(`(?m)^\.?/?([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.go) did not return a true value at line \d+`)
 
 	if len(matches) < 2 {
-		/*
-			Go test failures name *_test.go files with a line number, e.g.
-			  math_test.go:42: Wrong: 5
-			The Perl pattern above never matches ".go", so this fallback
-			only fires when no .pl path was found — existing behavior for
-			Perl output is untouched.
-		*/
-		goRe := regexp.MustCompile(`(?:^|\s)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*_test\.go):\d+:`)
+		if src := perlStyleRe.FindStringSubmatch(output); len(src) >= 2 {
+			candidate := strings.TrimPrefix(src[1], "./")
 
-		matches = goRe.FindStringSubmatch(output)
+			/*
+				Disk-verified lookup without the ProjectIndex (the
+				index may be absent in unit contexts). *_test.go
+				files are still excluded from repair targets.
+			*/
+			exists := false
+			if !strings.HasSuffix(candidate, "_test.go") &&
+				!filepath.IsAbs(candidate) && candidate != "" {
+				if a.Root != "" {
+					if info, err := os.Stat(filepath.Join(a.Root, filepath.FromSlash(candidate))); err == nil && !info.IsDir() {
+						exists = true
+					}
+				} else if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+					exists = true
+				}
+			}
+
+			perlDotSlash := regexp.MustCompile(`^\./([A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*) did not return a true value at line \d+`)
+
+			if pd := perlDotSlash.FindStringSubmatch(output); len(pd) >= 2 {
+				candidate := pd[1]
+				if !strings.HasSuffix(candidate, "_test.go") && (a.Root == "" || a.sourceFileExists(candidate)) {
+					return candidate
+				}
+			}
+
+			if exists || a.sourceFileExists(candidate) {
+				return candidate
+			}
+		}
+	}
+
+	/*
+		Perl migration: the historical standalone test program was named
+		"test.pl"; its Go replacement is "test.go" (and variants such as
+		"test_main.go"). Only these canonical test-program names are
+		recognised without a line marker, so prose mentions of ordinary
+		source files ("compiled main.go successfully") never fabricate a
+		repair target. Legacy ".pl" names are no longer matched at all:
+		garbage output must fall back to LastWritePath, not to a Perl
+		path string.
+	*/
+	if len(matches) < 2 {
+		matches = goPlainRe.FindStringSubmatch(output)
+	}
+
+	/*
+		Failures that name an existing non-test source file directly, with
+		a line marker, e.g. "main.go:4: declared and not used: x". The
+		file must exist under the project root (checked below via
+		resolveGoRepairTarget-style disk lookup); otherwise the match is
+		discarded so garbage output cannot fabricate a repair target.
+	*/
+	goSourceRe := regexp.MustCompile(`(?:^|\s|\.)(\.?/?[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*\.go):\d+:`)
+
+	if len(matches) < 2 {
+		if src := goSourceRe.FindStringSubmatch(output); len(src) >= 2 {
+			candidate := strings.TrimPrefix(src[1], "./")
+
+			if a.sourceFileExists(candidate) {
+				matches = src
+			}
+		}
 	}
 
 	if len(matches) > 1 {
@@ -1954,8 +2083,7 @@ func (a *Agent) failedSourcePath(output string) string {
 
 		/*
 			Go failures name *_test.go files; the file to repair is the
-			sibling source (foo_test.go -> foo.go). Perl resolution never
-			enters this branch.
+			sibling source (foo_test.go -> foo.go).
 		*/
 		if strings.HasSuffix(path, "_test.go") {
 			if target := a.resolveGoRepairTarget(path); target != "" {
@@ -1970,6 +2098,26 @@ func (a *Agent) failedSourcePath(output string) string {
 		if a.DependencyGraph != nil {
 			deps := a.DependencyGraph.Dependencies(path)
 
+			/*
+				A failing *_test.go without an existing sibling must
+				repair the first imported non-test Go source, not the
+				test file itself. This mirrors the historical Perl
+				contract where "test.pl: FAILED" steered the repair at
+				the required module ("math.pl"). Without this filter,
+				an import cycle (main_test.go -> main.go ->
+				main_test.go) would send the FSM back to repair the
+				test file and loop forever.
+			*/
+			if strings.HasSuffix(path, "_test.go") {
+				for _, dep := range deps {
+					if !strings.HasSuffix(dep, "_test.go") {
+						return dep
+					}
+				}
+
+				return path
+			}
+
 			if len(deps) > 0 {
 				return deps[0]
 			}
@@ -1979,7 +2127,7 @@ func (a *Agent) failedSourcePath(output string) string {
 	}
 
 	/*
-		If the test output does not explicitly name a .pl file,
+		If the test output does not explicitly name a failing Go test file,
 		prefer the most recently written file.
 	*/
 	if a.LastWritePath != "" {
@@ -2003,21 +2151,47 @@ func (a *Agent) resolveGoRepairTarget(testPath string) string {
 		return ""
 	}
 
+	if a.sourceFileExists(source) {
+		return source
+	}
+
+	return ""
+}
+
+/*
+sourceFileExists reports whether rel is an existing non-test Go source
+file under the project root. The check consults the ProjectIndex first
+(when built) and falls back to a disk stat. Absolute paths and *_test.go
+files are never treated as repairable sources, so fabricated names in
+garbage test output cannot become repair targets.
+*/
+func (a *Agent) sourceFileExists(rel string) bool {
+	if rel == "" || strings.HasSuffix(rel, "_test.go") {
+		return false
+	}
+
+	base := filepath.Base(rel)
+	if base == "." || base == "/" || base == ".go" || filepath.IsAbs(rel) {
+		return false
+	}
+
+	clean := filepath.Clean(filepath.ToSlash(rel))
+
 	if a.ProjectIndex != nil {
 		for _, file := range a.ProjectIndex.Files {
-			if filepath.ToSlash(file.Path) == filepath.ToSlash(source) {
-				return source
+			if filepath.ToSlash(file.Path) == clean {
+				return true
 			}
 		}
 	}
 
 	if a.Root != "" {
-		if _, err := os.Stat(filepath.Join(a.Root, filepath.Clean(source))); err == nil {
-			return source
+		if info, err := os.Stat(filepath.Join(a.Root, clean)); err == nil && !info.IsDir() {
+			return true
 		}
 	}
 
-	return ""
+	return false
 }
 
 func value(args map[string]string, key, fallback string) string {

@@ -14,16 +14,16 @@ func TestPromptIncludesDependencyGraph(t *testing.T) {
 	root := t.TempDir()
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
-		[]byte("sub add { $_[0] + $_[1] }\n"),
+		filepath.Join(root, "math.go"),
+		[]byte("package main\n\nfunc Add(a, b int) int { return a + b }\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
-		[]byte("require 'math.pl';\n"),
+		filepath.Join(root, "test.go"),
+		[]byte("package main\nimport \"./math.go\"\n\nfunc init() { _ = Add(1,2) }\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
@@ -44,7 +44,7 @@ func TestPromptIncludesDependencyGraph(t *testing.T) {
 		t.Fatal("prompt does not contain dependency graph section")
 	}
 
-	if !strings.Contains(prompt, "test.pl -> math.pl") {
+	if !strings.Contains(prompt, "test.go -> math.go") {
 		t.Fatalf(
 			"prompt does not contain expected dependency: %q",
 			prompt,

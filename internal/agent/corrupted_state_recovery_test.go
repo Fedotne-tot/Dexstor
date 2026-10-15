@@ -18,30 +18,33 @@ import (
 func TestCorruptedTaskStateRecovery(t *testing.T) {
 	root := t.TempDir()
 
-	task := "Исправь math.pl так, чтобы add(2, 3) возвращала 10."
+	task := "Исправь math.go так, чтобы add(2, 3) возвращала 10."
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -49,7 +52,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -60,7 +63,7 @@ print "PASS\n";
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "BRATAN Test"},
-		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "add", "math.go", "test.go"},
 		{"git", "-C", root, "commit", "-m", "initial corrupted-state test"},
 	}
 
@@ -121,21 +124,14 @@ name: inspect_project`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-arg: math.pl`
+arg: math.go`
 
 		case 3:
-			response = `TOOL_CALL
-name: write_file
-path: math.pl
-content: sub add {
-    my ($a, $b) = @_;
-    return 10;
+			response = `package main
+
+func Add(a, b int) int {
+	return 10
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
 		default:
@@ -168,13 +164,13 @@ our @EXPORT_OK = qw(add);
 		t.Fatalf("expected StateDone after recovery, got %s", agent.State)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	data, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !strings.Contains(string(data), "return 10;") {
-		t.Fatalf("math.pl was not repaired:\n%s", data)
+		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 
 	// The corrupted state must have been preserved rather than silently

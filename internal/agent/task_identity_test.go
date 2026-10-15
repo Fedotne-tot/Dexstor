@@ -9,8 +9,8 @@ import (
 func TestTaskStateRejectsDifferentTask(t *testing.T) {
 	root := t.TempDir()
 
-	taskA := "Исправь math.pl: add(2, 3) должна возвращать 10"
-	taskB := "Исправь math.pl: add(2, 3) должна возвращать 20"
+	taskA := "Исправь math.go: add(2, 3) должна возвращать 10"
+	taskB := "Исправь math.go: add(2, 3) должна возвращать 20"
 
 	stateA := &TaskState{
 		Version:   taskStateVersion,
@@ -21,10 +21,10 @@ func TestTaskStateRejectsDifferentTask(t *testing.T) {
 		Iteration: 5,
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"write_file:math.go",
 			"git_diff",
-			"test:test.pl",
+			"test:test.go",
 		},
 		ReadFiles:  make(map[string]string),
 		FileHashes: make(map[string]string),

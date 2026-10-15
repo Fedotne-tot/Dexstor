@@ -19,7 +19,7 @@ func TestTaskStateCrashBeforeRenameKeepsPreviousState(t *testing.T) {
 		Iteration: 7,
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
+			"read_file:math.go",
 		},
 		ReadFiles:    make(map[string]string),
 		FileHashes:   make(map[string]string),
@@ -42,13 +42,13 @@ func TestTaskStateCrashBeforeRenameKeepsPreviousState(t *testing.T) {
 		Iteration: 8,
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"write_file:math.go",
 			"git_diff",
 		},
 		ReadFiles:    make(map[string]string),
 		FileHashes:   make(map[string]string),
-		ChangedFiles: []string{"math.pl"},
+		ChangedFiles: []string{"math.go"},
 	}
 
 	data, err := json.MarshalIndent(crashed, "", "  ")

@@ -16,28 +16,31 @@ import (
 func TestDoneStateRerunIsIdempotent(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return 10;
+	math := `package main
+
+func Add(a, b int) int {
+	return 10
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -45,7 +48,7 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
@@ -77,7 +80,7 @@ print "PASS\n";
 	))
 	defer server.Close()
 
-	task := "Fix math.pl so add(2, 3) returns 10"
+	task := "Fix math.go so add(2, 3) returns 10"
 
 	newAgent := func() *Agent {
 		return &Agent{
@@ -94,7 +97,7 @@ print "PASS\n";
 	first := newAgent()
 
 	writeArgs := []string{
-		"math.pl",
+		"math.go",
 		math,
 	}
 
@@ -105,15 +108,15 @@ print "PASS\n";
 			OK:        true,
 			Exit:      0,
 			ActionKey: makeActionKey("inspect_project"),
-			Result:    "math.pl\ntest.pl",
+			Result:    "math.go\ntest.go",
 		},
 		{
 			Iteration: 2,
 			Tool:      "read_file",
-			Args:      []string{"math.pl"},
+			Args:      []string{"math.go"},
 			OK:        true,
 			Exit:      0,
-			ActionKey: makeActionKey("read_file", "math.pl"),
+			ActionKey: makeActionKey("read_file", "math.go"),
 			Result:    math,
 		},
 		{
@@ -137,33 +140,33 @@ print "PASS\n";
 		{
 			Iteration: 5,
 			Tool:      "test",
-			Args:      []string{"test.pl"},
+			Args:      []string{"test.go"},
 			OK:        true,
 			Exit:      0,
-			ActionKey: makeActionKey("test", "test.pl"),
+			ActionKey: makeActionKey("test", "test.go"),
 			Result:    "PASS\n",
 		},
 	}
 
 	first.History = []string{
 		"inspect_project",
-		"read_file:math.pl",
-		"write_file:math.pl",
+		"read_file:math.go",
+		"write_file:math.go",
 		"git_diff",
-		"test:test.pl",
+		"test:test.go",
 	}
 
 	first.Wrote = true
 	first.DiffChecked = true
-	first.LastWritePath = "math.pl"
+	first.LastWritePath = "math.go"
 	first.LastResult = "PASS"
-	first.LastAction = "test:test.pl"
+	first.LastAction = "test:test.go"
 
 	if err := first.saveState(task, 10); err != nil {
 		t.Fatalf("save DONE state: %v", err)
 	}
 
-	before, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	before, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -188,13 +191,13 @@ print "PASS\n";
 		)
 	}
 
-	after, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	after, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if string(after) != string(before) {
-		t.Fatal("DONE rerun modified math.pl")
+		t.Fatal("DONE rerun modified math.go")
 	}
 
 	if len(second.History) != 5 {

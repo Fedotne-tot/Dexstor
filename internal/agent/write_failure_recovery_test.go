@@ -17,19 +17,26 @@ import (
 func TestWriteFileFailureDoesNotRetryForever(t *testing.T) {
 	root := t.TempDir()
 
-	task := "Inspect test.pl and attempt to write the same content back to test.pl."
+	task := "Inspect test.go and attempt to write the same content back to test.go."
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte("sub add { return 5; }\n1;\n"),
 		0644,
 	); err != nil {
@@ -37,14 +44,14 @@ print "PASS\n";
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
+		filepath.Join(root, "test.go"),
 		[]byte(testProgram),
 		0644,
 	); err != nil {
 		t.Fatal(err)
 	}
 
-	original, err := os.ReadFile(filepath.Join(root, "test.pl"))
+	original, err := os.ReadFile(filepath.Join(root, "test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,21 +94,25 @@ END_TOOL_CALL`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-path: test.pl
+path: test.go
 END_TOOL_CALL`
 
 		case 3:
-			response = `TOOL_CALL
-name: write_file
-path: test.pl
-content: require "./math.pl";
+			response = `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
-END_TOOL_CALL`
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
+`
 
 		default:
 			t.Fatalf("unexpected Ollama request #%d", n)
@@ -150,14 +161,14 @@ END_TOOL_CALL`
 		)
 	}
 
-	current, err := os.ReadFile(filepath.Join(root, "test.pl"))
+	current, err := os.ReadFile(filepath.Join(root, "test.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if string(current) != string(original) {
 		t.Fatalf(
-			"protected test.pl changed after failed write:\n%s",
+			"protected test.go changed after failed write:\n%s",
 			current,
 		)
 	}

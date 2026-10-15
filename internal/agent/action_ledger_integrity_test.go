@@ -8,7 +8,7 @@ func TestActionLedgerRejectsTamperedActionKey(t *testing.T) {
 	root := t.TempDir()
 
 	args := []string{
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	}
 
@@ -38,7 +38,7 @@ func TestActionLedgerAcceptsValidActionKey(t *testing.T) {
 	root := t.TempDir()
 
 	args := []string{
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	}
 
@@ -73,7 +73,7 @@ func TestActionLedgerRejectsMismatchedArguments(t *testing.T) {
 	root := t.TempDir()
 
 	storedArgs := []string{
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	}
 
@@ -95,7 +95,7 @@ func TestActionLedgerRejectsMismatchedArguments(t *testing.T) {
 	}
 
 	differentArgs := []string{
-		"math.pl",
+		"math.go",
 		"return 11;\n",
 	}
 
@@ -109,7 +109,7 @@ func TestActionLedgerLegacyRecordWithoutArgsDoesNotPassIntegrityCheck(t *testing
 
 	key := makeActionKey(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	)
 
@@ -118,7 +118,7 @@ func TestActionLedgerLegacyRecordWithoutArgsDoesNotPassIntegrityCheck(t *testing
 		ActionLedger: []ActionRecord{
 			{
 				Iteration: 7,
-				Tool:      "write_file:math.pl",
+				Tool:      "write_file:math.go",
 				ActionKey: key,
 				Result:    "file written successfully",
 				OK:        true,
@@ -129,7 +129,7 @@ func TestActionLedgerLegacyRecordWithoutArgsDoesNotPassIntegrityCheck(t *testing
 
 	if _, ok := a.hasSuccessfulAction(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	); ok {
 		t.Fatal("legacy record without Args passed integrity validation")
@@ -142,7 +142,7 @@ func TestPersistedStateRejectsTamperedActionKey(t *testing.T) {
 
 	key := makeActionKey(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	)
 
@@ -159,7 +159,7 @@ func TestPersistedStateRejectsTamperedActionKey(t *testing.T) {
 				Tool:      "write_file",
 				ActionKey: key + "tampered",
 				Args: []string{
-					"math.pl",
+					"math.go",
 					"return 10;\n",
 				},
 				Result: "file written successfully",
@@ -184,7 +184,7 @@ func TestPersistedStateRejectsChangedArguments(t *testing.T) {
 
 	key := makeActionKey(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	)
 
@@ -201,7 +201,7 @@ func TestPersistedStateRejectsChangedArguments(t *testing.T) {
 				Tool:      "write_file",
 				ActionKey: key,
 				Args: []string{
-					"math.pl",
+					"math.go",
 					"return 11;\n",
 				},
 				Result: "file written successfully",
@@ -236,10 +236,10 @@ func TestPersistedStateRejectsTamperedSnapshotWithMatchingBaseHash(t *testing.T)
 		Iteration: 3,
 
 		ReadFiles: map[string]string{
-			"math.pl": originalContent,
+			"math.go": originalContent,
 		},
 		FileHashes: map[string]string{
-			"math.pl": contentHash(originalContent),
+			"math.go": contentHash(originalContent),
 		},
 
 		ActionLedger: []ActionRecord{
@@ -247,15 +247,15 @@ func TestPersistedStateRejectsTamperedSnapshotWithMatchingBaseHash(t *testing.T)
 				Iteration: 1,
 				Tool:      "inspect_project",
 				ActionKey: makeActionKey("inspect_project"),
-				Result:    "math.pl\ntest.pl",
+				Result:    "math.go\ntest.go",
 				OK:        true,
 				Exit:      0,
 			},
 			{
 				Iteration: 2,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "math.pl"),
-				Args:      []string{"math.pl"},
+				ActionKey: makeActionKey("read_file", "math.go"),
+				Args:      []string{"math.go"},
 				Result:    tamperedContent,
 				OK:        true,
 				Exit:      0,
@@ -265,11 +265,11 @@ func TestPersistedStateRejectsTamperedSnapshotWithMatchingBaseHash(t *testing.T)
 				Tool:      "write_file",
 				ActionKey: makeActionKey(
 					"write_file",
-					"math.pl",
+					"math.go",
 					"return 10;\n",
 				),
 				Args: []string{
-					"math.pl",
+					"math.go",
 					"return 10;\n",
 				},
 				BaseHash: contentHash(tamperedContent),
@@ -295,7 +295,7 @@ func TestPersistedStateAcceptsValidActionKey(t *testing.T) {
 
 	key := makeActionKey(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	)
 
@@ -312,7 +312,7 @@ func TestPersistedStateAcceptsValidActionKey(t *testing.T) {
 				Tool:      "write_file",
 				ActionKey: key,
 				Args: []string{
-					"math.pl",
+					"math.go",
 					"return 10;\n",
 				},
 				Result: "file written successfully",
@@ -417,15 +417,15 @@ func TestPersistedStateAcceptsCanonicalSemanticActions(t *testing.T) {
 			Iteration: 1,
 			Tool:      "inspect_project",
 			ActionKey: makeActionKey("inspect_project"),
-			Result:    "math.pl\ntest.pl",
+			Result:    "math.go\ntest.go",
 			OK:        true,
 			Exit:      0,
 		},
 		{
 			Iteration: 2,
 			Tool:      "read_file",
-			ActionKey: makeActionKey("read_file", "math.pl"),
-			Args:      []string{"math.pl"},
+			ActionKey: makeActionKey("read_file", "math.go"),
+			Args:      []string{"math.go"},
 			Result:    "source",
 			OK:        true,
 			Exit:      0,
@@ -433,8 +433,8 @@ func TestPersistedStateAcceptsCanonicalSemanticActions(t *testing.T) {
 		{
 			Iteration: 3,
 			Tool:      "write_file",
-			ActionKey: makeActionKey("write_file", "math.pl", "return 10;\n"),
-			Args:      []string{"math.pl", "return 10;\n"},
+			ActionKey: makeActionKey("write_file", "math.go", "return 10;\n"),
+			Args:      []string{"math.go", "return 10;\n"},
 			Result:    "file written successfully",
 			OK:        true,
 			Exit:      0,
@@ -450,8 +450,8 @@ func TestPersistedStateAcceptsCanonicalSemanticActions(t *testing.T) {
 		{
 			Iteration: 5,
 			Tool:      "test",
-			ActionKey: makeActionKey("test", "test.pl"),
-			Args:      []string{"test.pl"},
+			ActionKey: makeActionKey("test", "test.go"),
+			Args:      []string{"test.go"},
 			Result:    "PASS",
 			OK:        true,
 			Exit:      0,
@@ -459,8 +459,8 @@ func TestPersistedStateAcceptsCanonicalSemanticActions(t *testing.T) {
 		{
 			Iteration: 6,
 			Tool:      "repair_read",
-			ActionKey: makeActionKey("repair_read", "math.pl"),
-			Args:      []string{"math.pl"},
+			ActionKey: makeActionKey("repair_read", "math.go"),
+			Args:      []string{"math.go"},
 			Result:    "source",
 			OK:        true,
 			Exit:      0,
@@ -468,8 +468,8 @@ func TestPersistedStateAcceptsCanonicalSemanticActions(t *testing.T) {
 		{
 			Iteration: 7,
 			Tool:      "repair_write",
-			ActionKey: makeActionKey("repair_write", "math.pl", "return 10;\n"),
-			Args:      []string{"math.pl", "return 10;\n"},
+			ActionKey: makeActionKey("repair_write", "math.go", "return 10;\n"),
+			Args:      []string{"math.go", "return 10;\n"},
 			Result:    "write completed",
 			OK:        true,
 			Exit:      0,
@@ -485,7 +485,7 @@ func TestPersistedStateAllowsLegacyEmptyActionKey(t *testing.T) {
 	ledger := []ActionRecord{
 		{
 			Iteration: 4,
-			Tool:      "write_file:math.pl",
+			Tool:      "write_file:math.go",
 			ActionKey: "",
 			Result:    "file written successfully",
 		},

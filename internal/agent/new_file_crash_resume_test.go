@@ -46,11 +46,11 @@ func TestCrashResumeNewFileUsesNonCASWriteAndDetectsAdded(t *testing.T) {
 		ActionLedger: []ActionRecord{
 			{
 				Iteration: 1,
-				Tool: "inspect_project",
+				Tool:      "inspect_project",
 				ActionKey: makeActionKey("inspect_project"),
-				Result: "hello.txt",
-				OK: true,
-				Exit: 0,
+				Result:    "hello.txt",
+				OK:        true,
+				Exit:      0,
 			},
 		},
 	}

@@ -20,13 +20,13 @@ func TestFailedSourcePathStillMatchesPerlOutput(t *testing.T) {
 	}{
 		{
 			name:   "perl colon form",
-			output: "test.pl: FAILED\nexpected 10, got 5",
-			want:   "test.pl",
+			output: "test.go: FAILED\nexpected 10, got 5",
+			want:   "test.go",
 		},
 		{
 			name:   "perl dot-slash form",
-			output: "./math.pl did not return a true value at line 3",
-			want:   "math.pl",
+			output: "./math.go did not return a true value at line 3",
+			want:   "math.go",
 		},
 	}
 
@@ -108,8 +108,8 @@ func TestFailedSourcePathIgnoresGarbageOutput(t *testing.T) {
 
 	// With LastWritePath set, garbage output still falls back to it
 	// (existing behavior, unchanged by the Go pattern).
-	a.LastWritePath = "math.pl"
-	if got := a.failedSourcePath("expected 10, got 5\n"); got != "math.pl" {
+	a.LastWritePath = "math.go"
+	if got := a.failedSourcePath("expected 10, got 5\n"); got != "math.go" {
 		t.Fatalf("garbage output should fall back to LastWritePath, got %q", got)
 	}
 }

@@ -12,7 +12,7 @@ func TestActionLedgerPersistsAcrossProcessRestart(t *testing.T) {
 
 	key := makeActionKey(
 		"write_file",
-		"math.pl",
+		"math.go",
 		"return 10;\n",
 	)
 
@@ -24,16 +24,16 @@ func TestActionLedgerPersistsAcrossProcessRestart(t *testing.T) {
 				Iteration: 7,
 				Tool:      "write_file",
 				ActionKey: key,
-				Args:      []string{"math.pl", "return 10;\n"},
+				Args:      []string{"math.go", "return 10;\n"},
 				Result:    "file written successfully",
 				OK:        true,
 				Exit:      0,
 			},
 		},
 		History: []string{
-			"write_file:math.pl",
+			"write_file:math.go",
 		},
-		LastWritePath: "math.pl",
+		LastWritePath: "math.go",
 		Wrote:         true,
 		DiffChecked:   false,
 	}
@@ -90,7 +90,7 @@ func TestActionLedgerPersistsAcrossProcessRestart(t *testing.T) {
 		t.Fatalf("restored Args length mismatch: got %d", len(record.Args))
 	}
 
-	if record.Args[0] != "math.pl" {
+	if record.Args[0] != "math.go" {
 		t.Fatalf("restored path arg mismatch: got %q", record.Args[0])
 	}
 
@@ -110,7 +110,7 @@ func TestActionLedgerPersistsAcrossProcessRestart(t *testing.T) {
 		)
 	}
 
-	found, ok := second.hasSuccessfulAction("write_file", "math.pl", "return 10;\n")
+	found, ok := second.hasSuccessfulAction("write_file", "math.go", "return 10;\n")
 	if !ok {
 		t.Fatal("restored successful ActionKey was not detected")
 	}
@@ -127,13 +127,13 @@ func TestActionLedgerPersistsAcrossProcessRestart(t *testing.T) {
 func TestOldStateWithoutActionKeyLoadsNormally(t *testing.T) {
 	root := t.TempDir()
 
-	mathPath := filepath.Join(root, "math.pl")
+	mathPath := filepath.Join(root, "math.go")
 	if err := os.WriteFile(
 		mathPath,
 		[]byte("return 10;\n"),
 		0644,
 	); err != nil {
-		t.Fatalf("write math.pl: %v", err)
+		t.Fatalf("write math.go: %v", err)
 	}
 
 	task := "load legacy action ledger"
@@ -146,12 +146,12 @@ func TestOldStateWithoutActionKeyLoadsNormally(t *testing.T) {
   "state": "VERIFY_DIFF",
   "iteration": 4,
   "history": [
-    "write_file:math.pl"
+    "write_file:math.go"
   ],
   "action_ledger": [
     {
       "iteration": 4,
-      "tool": "write_file:math.pl",
+      "tool": "write_file:math.go",
       "result": "file written successfully"
     }
   ],

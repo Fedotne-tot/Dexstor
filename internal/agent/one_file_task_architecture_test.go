@@ -17,21 +17,17 @@ import (
 func TestOneFileTaskDoesNotRequireArtificialSecondRead(t *testing.T) {
 	root := t.TempDir()
 
-	task := "Исправь math.pl. В этом проекте только один исходный файл."
+	task := "Исправь math.go. В этом проекте только один исходный файл."
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
+		filepath.Join(root, "math.go"),
 		[]byte(math),
 		0644,
 	); err != nil {
@@ -42,7 +38,7 @@ our @EXPORT_OK = qw(add);
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "DEXSTER Test"},
-		{"git", "-C", root, "add", "math.pl"},
+		{"git", "-C", root, "add", "math.go"},
 		{"git", "-C", root, "commit", "-m", "initial state"},
 	}
 
@@ -84,7 +80,7 @@ name: inspect_project`
 		case 2:
 			response = `TOOL_CALL
 name: read_file
-arg: math.pl`
+arg: math.go`
 
 		case 3:
 			/*
@@ -94,18 +90,11 @@ arg: math.pl`
 				The controller must not force another read merely
 				because len(ReadFiles) == 1.
 			*/
-			response = `TOOL_CALL
-name: write_file
-path: math.pl
-content: sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+			response = `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
 		default:
@@ -154,7 +143,7 @@ our @EXPORT_OK = qw(add);
 
 	for _, record := range agent.History {
 		if strings.HasPrefix(record, "read_file:") &&
-			record != "read_file:math.pl" {
+			record != "read_file:math.go" {
 			t.Fatalf("unexpected second file read: %v", agent.History)
 		}
 	}

@@ -25,7 +25,7 @@ func resultAction(
 
 func TestActionLedgerResultRejectsFailedActionWithZeroExit(t *testing.T) {
 	ledger := []ActionRecord{
-		resultAction(1, "read_file", "failed", false, 0, "math.pl"),
+		resultAction(1, "read_file", "failed", false, 0, "math.go"),
 	}
 
 	if err := validateActionLedgerResultIntegrity(ledger); err == nil {
@@ -35,7 +35,7 @@ func TestActionLedgerResultRejectsFailedActionWithZeroExit(t *testing.T) {
 
 func TestActionLedgerResultRejectsSuccessfulActionWithNonZeroExit(t *testing.T) {
 	ledger := []ActionRecord{
-		resultAction(1, "read_file", "content", true, 1, "math.pl"),
+		resultAction(1, "read_file", "content", true, 1, "math.go"),
 	}
 
 	if err := validateActionLedgerResultIntegrity(ledger); err == nil {
@@ -45,7 +45,7 @@ func TestActionLedgerResultRejectsSuccessfulActionWithNonZeroExit(t *testing.T) 
 
 func TestActionLedgerResultRejectsSuccessfulTestWithoutPASS(t *testing.T) {
 	ledger := []ActionRecord{
-		resultAction(1, "test", "tests completed", true, 0, "test.pl"),
+		resultAction(1, "test", "tests completed", true, 0, "test.go"),
 	}
 
 	if err := validateActionLedgerResultIntegrity(ledger); err == nil {
@@ -55,8 +55,8 @@ func TestActionLedgerResultRejectsSuccessfulTestWithoutPASS(t *testing.T) {
 
 func TestActionLedgerResultAcceptsSuccessfulNonTestAction(t *testing.T) {
 	ledger := []ActionRecord{
-		resultAction(1, "read_file", "content", true, 0, "math.pl"),
-		resultAction(2, "write_file", "file written successfully", true, 0, "math.pl", "content"),
+		resultAction(1, "read_file", "content", true, 0, "math.go"),
+		resultAction(2, "write_file", "file written successfully", true, 0, "math.go", "content"),
 		resultAction(3, "git_diff", "diff", true, 0),
 	}
 
@@ -67,7 +67,7 @@ func TestActionLedgerResultAcceptsSuccessfulNonTestAction(t *testing.T) {
 
 func TestActionLedgerResultAcceptsFailedTest(t *testing.T) {
 	ledger := []ActionRecord{
-		resultAction(1, "test", "WRONG: 5", false, 1, "test.pl"),
+		resultAction(1, "test", "WRONG: 5", false, 1, "test.go"),
 	}
 
 	if err := validateActionLedgerResultIntegrity(ledger); err != nil {
@@ -79,7 +79,7 @@ func TestActionLedgerResultAllowsLegacyRecordWithoutActionKey(t *testing.T) {
 	ledger := []ActionRecord{
 		{
 			Iteration: 4,
-			Tool:      "write_file:math.pl",
+			Tool:      "write_file:math.go",
 			Result:    "file written successfully",
 			OK:        false,
 			Exit:      0,

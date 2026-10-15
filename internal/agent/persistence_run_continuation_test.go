@@ -19,31 +19,34 @@ import (
 func TestPersistedRunContinuesFromRepairRead(t *testing.T) {
 	root := t.TempDir()
 
-	math := `sub add {
-    my ($a, $b) = @_;
-    return $a + $b;
+	math := `package main
+
+func Add(a, b int) int {
+	return a + b
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 
-	testProgram := `require "./math.pl";
+	testProgram := `package main
 
-my $result = add(2, 3);
+import "fmt"
 
-die "WRONG: $result\n" unless $result == 10;
+func main() {
+	result := Add(2, 3)
 
-print "PASS\n";
+	if result != 10 {
+		fmt.Printf("WRONG: %d\n", result)
+		panic("test failed")
+	}
+
+	fmt.Println("PASS")
+}
 `
 
-	if err := os.WriteFile(filepath.Join(root, "math.pl"), []byte(math), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "math.go"), []byte(math), 0644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := os.WriteFile(filepath.Join(root, "test.pl"), []byte(testProgram), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(root, "test.go"), []byte(testProgram), 0644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -51,7 +54,7 @@ print "PASS\n";
 		{"git", "-C", root, "init"},
 		{"git", "-C", root, "config", "user.email", "test@example.com"},
 		{"git", "-C", root, "config", "user.name", "BRATAN Test"},
-		{"git", "-C", root, "add", "math.pl", "test.pl"},
+		{"git", "-C", root, "add", "math.go", "test.go"},
 		{"git", "-C", root, "commit", "-m", "initial test state"},
 	}
 
@@ -95,18 +98,11 @@ print "PASS\n";
 				REPAIR_READ is deterministic, then REPAIR_WRITE asks
 				the model for the actual write_file operation.
 			*/
-			response = `TOOL_CALL
-name: write_file
-path: math.pl
-content: sub add {
-    my ($a, $b) = @_;
-    return 10;
+			response = `package main
+
+func Add(a, b int) int {
+	return 10
 }
-
-use Exporter qw(import);
-our @EXPORT_OK = qw(add);
-
-1;
 `
 		default:
 			t.Fatalf("unexpected Ollama request #%d", n)
@@ -139,19 +135,19 @@ our @EXPORT_OK = qw(add);
 		State:        StateRepairRead,
 		ProjectIndex: baseline,
 
-		RepairPath:    "math.pl",
-		LastWritePath: "math.pl",
+		RepairPath:    "math.go",
+		LastWritePath: "math.go",
 		LastTestError: "WRONG: 5",
-		LastAction:    "test:test.pl",
+		LastAction:    "test:test.go",
 		LastResult:    "WRONG: 5",
 
 		History: []string{
 			"inspect_project",
-			"read_file:math.pl",
-			"read_file:test.pl",
-			"write_file:math.pl",
+			"read_file:math.go",
+			"read_file:test.go",
+			"write_file:math.go",
 			"git_diff",
-			"test:test.pl",
+			"test:test.go",
 		},
 
 		ActionLedger: []ActionRecord{
@@ -159,15 +155,15 @@ our @EXPORT_OK = qw(add);
 				Iteration: 1,
 				Tool:      "inspect_project",
 				ActionKey: makeActionKey("inspect_project"),
-				Result:    "math.pl\ntest.pl",
+				Result:    "math.go\ntest.go",
 				OK:        true,
 				Exit:      0,
 			},
 			{
 				Iteration: 2,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "math.pl"),
-				Args:      []string{"math.pl"},
+				ActionKey: makeActionKey("read_file", "math.go"),
+				Args:      []string{"math.go"},
 				Result:    math,
 				OK:        true,
 				Exit:      0,
@@ -175,8 +171,8 @@ our @EXPORT_OK = qw(add);
 			{
 				Iteration: 3,
 				Tool:      "read_file",
-				ActionKey: makeActionKey("read_file", "test.pl"),
-				Args:      []string{"test.pl"},
+				ActionKey: makeActionKey("read_file", "test.go"),
+				Args:      []string{"test.go"},
 				Result:    testProgram,
 				OK:        true,
 				Exit:      0,
@@ -184,8 +180,8 @@ our @EXPORT_OK = qw(add);
 			{
 				Iteration: 4,
 				Tool:      "write_file",
-				ActionKey: makeActionKey("write_file", "math.pl", math),
-				Args:      []string{"math.pl", math},
+				ActionKey: makeActionKey("write_file", "math.go", math),
+				Args:      []string{"math.go", math},
 				BaseHash:  contentHash(math),
 				Result:    "file written successfully",
 				OK:        true,
@@ -202,8 +198,8 @@ our @EXPORT_OK = qw(add);
 			{
 				Iteration: 6,
 				Tool:      "test",
-				ActionKey: makeActionKey("test", "test.pl"),
-				Args:      []string{"test.pl"},
+				ActionKey: makeActionKey("test", "test.go"),
+				Args:      []string{"test.go"},
 				Result:    "WRONG: 5",
 				OK:        false,
 				Exit:      1,
@@ -211,7 +207,7 @@ our @EXPORT_OK = qw(add);
 		},
 	}
 
-	task := "Fix math.pl so add(2, 3) returns 10"
+	task := "Fix math.go so add(2, 3) returns 10"
 
 	if err := first.saveState(task, 6); err != nil {
 		t.Fatalf("save interrupted state: %v", err)
@@ -237,13 +233,13 @@ our @EXPORT_OK = qw(add);
 		t.Fatalf("expected StateDone, got %s", resumed.State)
 	}
 
-	data, err := os.ReadFile(filepath.Join(root, "math.pl"))
+	data, err := os.ReadFile(filepath.Join(root, "math.go"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if !strings.Contains(string(data), "return 10;") {
-		t.Fatalf("math.pl was not repaired:\n%s", data)
+		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 
 	var sawRepairRead bool

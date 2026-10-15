@@ -13,16 +13,16 @@ func TestRestoreStateRebuildsDependencyGraph(t *testing.T) {
 	root := t.TempDir()
 
 	if err := os.WriteFile(
-		filepath.Join(root, "math.pl"),
-		[]byte("sub add { $_[0] + $_[1] }\n"),
+		filepath.Join(root, "math.go"),
+		[]byte("package main\n\nfunc Add(a, b int) int { return a + b }\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := os.WriteFile(
-		filepath.Join(root, "test.pl"),
-		[]byte("require 'math.pl';\n"),
+		filepath.Join(root, "test.go"),
+		[]byte("package main\nimport \"./math.go\"\n\nfunc init() { _ = Add(1,2) }\n"),
 		0644,
 	); err != nil {
 		t.Fatal(err)
@@ -55,9 +55,9 @@ func TestRestoreStateRebuildsDependencyGraph(t *testing.T) {
 		t.Fatal("dependency graph was not rebuilt")
 	}
 
-	deps := restored.DependencyGraph.Dependencies("test.pl")
+	deps := restored.DependencyGraph.Dependencies("test.go")
 
-	if len(deps) != 1 || deps[0] != "math.pl" {
+	if len(deps) != 1 || deps[0] != "math.go" {
 		t.Fatalf(
 			"unexpected restored dependency graph: %#v",
 			deps,
