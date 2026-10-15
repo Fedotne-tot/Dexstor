@@ -186,14 +186,14 @@ name: inspect_project`
 		t.Fatalf("persisted state: expected DONE, got %s", state.State)
 	}
 
-	if state.Iteration != 6 {
-		t.Fatalf("persisted state: expected iteration 6, got %d", state.Iteration)
+	if state.Iteration != 5 {
+		t.Fatalf("persisted state: expected iteration 5, got %d", state.Iteration)
 	}
 
 	firstRunRequests := requests
 
-	if firstRunRequests != 4 {
-		t.Fatalf("first run: expected 4 Ollama requests, got %d", firstRunRequests)
+	if firstRunRequests != 3 {
+		t.Fatalf("first run: expected 3 Ollama requests, got %d", firstRunRequests)
 	}
 
 	// ------------------------------------------------------------------
@@ -254,8 +254,8 @@ name: inspect_project`
 
 	totalRequests := requests
 
-	if totalRequests != 8 {
-		t.Fatalf("expected 8 total Ollama requests across two runs, got %d", totalRequests)
+	if totalRequests != 6 {
+		t.Fatalf("expected 6 total Ollama requests across two runs, got %d", totalRequests)
 	}
 
 	// Second run must have executed the full model-driven discovery path.

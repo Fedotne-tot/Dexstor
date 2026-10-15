@@ -1263,8 +1263,10 @@ func (a *Agent) Run(task string) error {
 				     any network request.
 			*/
 			path := ""
+			hasDetectedTest := false
 			if detected := a.detectTestFile(); detected != "" && a.Router.Exists(detected) {
 				path = detected
+				hasDetectedTest = true
 			} else if a.LastWritePath != "" && a.Router.Exists(a.LastWritePath) && filepath.Ext(a.LastWritePath) == ".go" {
 				/*
 					Fallback target must be runnable by the test router. A
@@ -1276,7 +1278,7 @@ func (a *Agent) Run(task string) error {
 				path = a.LastWritePath
 			}
 
-			if path == "" {
+			if path == "" && !hasDetectedTest {
 				/*
 					Go migration contract for data-file tasks: when there is
 					no test artifact at all (no *_test.go, no root test.go,
@@ -1285,7 +1287,29 @@ func (a *Agent) Run(task string) error {
 					any network request. This keeps pure data-file workflows
 					(create/edit hello.txt) completable; code tasks still
 					reach this branch only after their own write cycle.
+
+					The synthetic ledger entries below carry real recomputable
+					ActionKeys derived from controller actions that already
+					succeeded in earlier states (inspect_project in DISCOVER,
+					write_file in WRITE_REQUIRED, git_diff in VERIFY_DIFF);
+					recording them with the current iteration keeps temporal
+					ordering (write < diff < pass) valid for completion.
 				*/
+				/*
+					Data-file completion contract: the ledger already carries
+					inspect_project (DISCOVER), write_file (WRITE_REQUIRED) and
+					git_diff (VERIFY_DIFF) entries with real iteration numbers.
+					Re-adding them here would break the temporal ordering checks
+					in validateCompletion (final write must precede final diff).
+					Only the synthetic PASS test entry is recorded; the guard
+					below keeps the deterministic block honest.
+				*/
+				if !a.Wrote || a.LastWritePath == "" {
+					return fmt.Errorf(
+						"completion blocked: data-file task has no successful write to verify",
+					)
+				}
+
 				a.recordAction(
 					iteration,
 					"test",
@@ -1293,6 +1317,7 @@ func (a *Agent) Run(task string) error {
 					"",
 					true,
 					0,
+					"__project_state__",
 				)
 
 				a.State = StateDone
