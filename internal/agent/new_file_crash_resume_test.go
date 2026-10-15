@@ -1,6 +1,8 @@
 package agent
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -11,6 +13,18 @@ import (
 
 func TestCrashResumeNewFileUsesNonCASWriteAndDetectsAdded(t *testing.T) {
 	root := t.TempDir()
+
+	// Network isolation: New() resolves the Ollama endpoint from
+	// BRATAN_OLLAMA_URL. This recovery scenario must never reach a real
+	// 127.0.0.1:11434 — any unexpected model request here is a contract
+	// violation, so fail loudly instead of dialing out.
+	modelCalls := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		modelCalls++
+		http.Error(w, "unexpected model request in crash-resume test", http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	t.Setenv("BRATAN_OLLAMA_URL", server.URL)
 
 	task := "Create hello.txt with HELLO_BRATAN"
 
