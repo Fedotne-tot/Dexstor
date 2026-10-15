@@ -906,6 +906,22 @@ func (a *Agent) saveState(task string, iteration int) error {
 
 	// A written file may have changed after the original read.
 	// Capture its actual current content as the resume baseline.
+	for _, path := range state.ChangedFiles {
+		if path == "" {
+			continue
+		}
+
+		if _, ok := state.FileHashes[path]; ok {
+			continue
+		}
+
+		fullPath := filepath.Join(a.Root, filepath.Clean(path))
+
+		if data, err := os.ReadFile(fullPath); err == nil {
+			state.FileHashes[path] = contentHash(string(data))
+		}
+	}
+
 	if a.LastWritePath != "" {
 		fullPath := filepath.Join(a.Root, filepath.Clean(a.LastWritePath))
 
@@ -1199,6 +1215,15 @@ func (a *Agent) Run(task string) error {
 			testLedgerResult := result.Output
 			if testLedgerResult == "" {
 				testLedgerResult = result.Status
+			} else if result.OK && !strings.Contains(testLedgerResult, "PASS") {
+				/*
+					Go runner contract: a successful run must carry the
+					literal PASS marker in the ledger Result so that
+					validateCompletion and resumed runs can recognise it.
+					Perl used to print PASS itself; Go programs may exit 0
+					silently, so append the marker here.
+				*/
+				testLedgerResult += "\nPASS\n"
 			}
 
 			a.recordAction(iteration, "test", testLedgerResult, result.Error, result.OK, result.Exit, path)
