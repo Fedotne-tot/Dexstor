@@ -52,8 +52,7 @@ func New(root string) *Router {
 	}
 }
 
-func (r *Router) Exists(path string) bool {
-	abs, err := r.safePath(path)
+func (r *Router) Exists(path string) bool {	abs, err := r.safePath(path)
 	if err != nil {
 		return false
 	}
@@ -892,7 +891,20 @@ func (r *Router) Test(path string) Result {
 			result.Exit = -1
 		}
 
+		/*
+			Perl migration, Go equivalent: a test process that ran but
+			exited non-zero with empty CombinedOutput gives the FSM no
+			diagnostic marker to act on. The historical Perl runtime
+			always printed something to STDERR before failing; the Go
+			runner restores that guarantee with a coarse FAIL fallback so
+			repair heuristics and ledger records never see an empty
+			failure output. Process-spawn errors keep their raw text.
+		*/
 		result.Error = err.Error()
+		if result.Output == "" && cmd.ProcessState != nil {
+			result.Output = "FAIL\n"
+		}
+
 		result.Status = "FAIL"
 		return result
 	}

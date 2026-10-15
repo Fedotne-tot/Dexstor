@@ -238,7 +238,7 @@ func Add(a, b int) int {
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 

@@ -139,12 +139,22 @@ name: inspect_project
 END_TOOL_CALL`
 
 		case "IMPLEMENT":
+		// The controller needs two distinct reads before it can
+		// transition IMPLEMENT -> WRITE_REQUIRED. Read the test entry
+		// point first, then the repair target.
+		if strings.Contains(req.Prompt, "--- FILE: math.go") {
+			response = `TOOL_CALL
+name: read_file
+path: test.go
+END_TOOL_CALL`
+		} else {
 			response = `TOOL_CALL
 name: read_file
 path: math.go
 END_TOOL_CALL`
+		}
 
-		case "WRITE_REQUIRED", "REPAIR_WRITE":
+	case "WRITE_REQUIRED", "REPAIR_WRITE":
 			response = `TOOL_CALL
 name: write_file
 path: math.go
@@ -190,7 +200,7 @@ END_TOOL_CALL`
 		t.Fatal(err)
 	}
 
-	if !strings.Contains(string(data), "return 10;") {
+	if !strings.Contains(string(data), "return 10") {
 		t.Fatalf("math.go was not repaired:\n%s", data)
 	}
 
@@ -225,7 +235,7 @@ END_TOOL_CALL`
 		t.Fatalf("recovered task hash mismatch")
 	}
 
-	if requests != 3 {
-		t.Fatalf("expected 3 Ollama requests after recovery, got %d", requests)
+	if requests != 4 {
+		t.Fatalf("expected 4 Ollama requests after recovery, got %d", requests)
 	}
 }

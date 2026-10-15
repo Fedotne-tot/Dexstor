@@ -1251,9 +1251,35 @@ func (a *Agent) Run(task string) error {
 		case StateTest:
 			fmt.Println("[BRATAN GO] tool=test")
 
-			path := a.detectTestFile()
-			if _, err := os.Stat(filepath.Join(a.Root, path)); os.IsNotExist(err) {
+			/*
+				Test target selection contract (Perl migration):
+				  1. an explicit test artifact on disk wins — *_test.go
+				     package tests or the root-level standalone entry file
+				     (the historical role of test.pl);
+				  2. otherwise the last successfully written file is
+				     executed as a standalone program;
+				  3. if neither exists there is nothing to verify:
+				     completion stays blocked deterministically without
+				     any network request.
+			*/
+			path := ""
+			if detected := a.detectTestFile(); detected != "" && a.Router.Exists(detected) {
+				path = detected
+			} else if a.LastWritePath != "" && a.Router.Exists(a.LastWritePath) && filepath.Ext(a.LastWritePath) == ".go" {
+				/*
+					Fallback target must be runnable by the test router. A
+					written non-Go artifact (e.g. hello.txt) is not a test:
+					feeding it to Router.Test would fabricate a "silent
+					failure" instead of the deterministic no-test-artifact
+					block below.
+				*/
 				path = a.LastWritePath
+			}
+
+			if path == "" {
+				return fmt.Errorf(
+					"completion blocked: no test artifact found (no *_test.go, no root test entry file, no runnable written Go source)",
+				)
 			}
 
 			result := a.Router.Test(path)
@@ -2002,6 +2028,39 @@ func (a *Agent) Run(task string) error {
 				continue
 			}
 
+			// Sandbox contract (Perl migration: protection of the
+			// root test program was migrated from "test.pl" to
+			// "test.go"/"*_test.go"): a protected path must be
+			// rejected before any CAS preflight so the caller gets
+			// the canonical Router error "protected file cannot be
+			// modified" and the run stops with "write_file failed"
+			// instead of retrying forever through the model.
+			if a.Router.isProtected(path) {
+				result := a.Router.WriteWithBaseHash(path, content, "")
+				a.recordActionWithBaseHash(
+					iteration,
+					"repair_write",
+					"write completed",
+					result.Error,
+					result.OK,
+					result.Exit,
+					"",
+					path,
+					content,
+				)
+				a.PendingAction = nil
+
+				fmt.Printf(
+					"[BRATAN GO] repair write failed: %s\n",
+					result.Error,
+				)
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
+					result.Error,
+				)
+			}
+
 			repairBaseHash := ""
 			for i := len(a.ActionLedger) - 1; i >= 0; i-- {
 				record := a.ActionLedger[i]
@@ -2057,7 +2116,16 @@ func (a *Agent) Run(task string) error {
 					"[BRATAN GO] repair write failed: %s\n",
 					result.Error,
 				)
-				continue
+				// Contract (mirrors the IMPLEMENT/WRITE_REQUIRED
+				// branch): a failed repair write is fatal for the
+				// run. Retrying forever via the model was the
+				// pre-migration defect exercised by
+				// TestWriteFileFailureDoesNotRetryForever.
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
+					result.Error,
+				)
 			}
 
 			a.Wrote = true
