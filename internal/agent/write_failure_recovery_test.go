@@ -83,47 +83,45 @@ func main() {
 
 		var response string
 
-		switch n {
-		case 1:
+		var state string
+		if i := strings.Index(req.Prompt, "Current state:"); i >= 0 {
+			rest := req.Prompt[i+len("Current state:"):]
+			if j := strings.IndexAny(rest, "\r\n"); j >= 0 {
+				rest = rest[:j]
+			}
+			state = strings.TrimSpace(rest)
+		}
+
+		isNudge := strings.Contains(req.Prompt, "NUDGE:")
+
+		switch {
+		case state == "DISCOVER":
 			response = `TOOL_CALL
 name: inspect_project
 path: .
 depth: 3
 END_TOOL_CALL`
 
-		case 2:
-			response = `TOOL_CALL
-name: read_file
-path: test.go
-END_TOOL_CALL`
-
-		case 3:
-			// NUDGE (state-based): the model produced bare code in
-			// IMPLEMENT; the controller asks again for a TOOL_CALL.
+		case state == "IMPLEMENT" && n == 2:
+			// Read the primary source file first. This satisfies the CAS
+			// trusted-snapshot requirement for the later write to math.go
+			// (writing an existing file without a snapshot is rejected by
+			// design and must stay rejected). One read is enough — the
+			// single-file task contract forbids an artificial second read.
 			response = `TOOL_CALL
 name: read_file
 path: math.go
 END_TOOL_CALL`
 
-		case 4:
-			response = `TOOL_CALL
-name: write_file
-path: math.go
-content: package main
-
-func Add(a, b int) int {
-	return 5
-}
-END_TOOL_CALL`
-
-		default:
-			// REPAIR_WRITE turn: the model proposes to repair the
-			// protected root test file (test.go is the Go successor
-			// of the historical protected test.pl). The Router must
-			// reject the write ("protected file cannot be modified")
-			// and the controller must stop the run with a
-			// "write_file failed" error instead of retrying forever
-			// through the model.
+		case state == "IMPLEMENT" && n == 3:
+			// After math.go was read, the model attempts to overwrite the
+			// protected root test program directly from IMPLEMENT. This is
+			// the scenario under test: the FSM must reject it with the
+			// canonical Router error "protected file cannot be modified"
+			// BEFORE the CAS/snapshot preflight (fix #6 ordering contract),
+			// even though test.go exists on disk without a trusted read
+			// snapshot, and the run must stop immediately instead of
+			// retrying through the model.
 			response = `TOOL_CALL
 name: write_file
 path: test.go
@@ -133,6 +131,31 @@ func main() {
 	panic("silent")
 }
 END_TOOL_CALL`
+
+		case state == "WRITE_REQUIRED" && !isNudge:
+			// The IMPLEMENT turn above moved the FSM into WRITE_REQUIRED
+			// (one trusted read is sufficient per the single-file task
+			// contract). The corrective model turn repeats the same
+			// legitimate intent: overwrite the protected root test
+			// program. The Router rejection must fire here too — before
+			// any baseHash/CAS preflight — and terminate the run.
+			response = `TOOL_CALL
+name: write_file
+path: test.go
+content: package main
+
+func main() {
+	panic("silent")
+}
+END_TOOL_CALL`
+
+		default:
+			// Safety net: any further request (VERIFY_DIFF, TEST, REPAIR_*,
+			// DONE, ...) means the controller did NOT stop after the
+			// protected-path failure (retry-forever regression). Return an
+			// empty response; the request-counter and error assertions
+			// below fail loudly.
+			response = ""
 		}
 
 		w.Header().Set("Content-Type", "application/json")
@@ -164,16 +187,16 @@ END_TOOL_CALL`
 		)
 	}
 
-	if requests != 4 {
+	if requests != 3 {
 		t.Fatalf(
-			"expected exactly 4 Ollama requests, got %d",
+			"expected exactly 3 Ollama requests, got %d",
 			requests,
 		)
 	}
 
-	if agent.State != StateImplement {
+	if agent.State != StateWriteReq {
 		t.Fatalf(
-			"expected state IMPLEMENT at failure, got %s",
+			"expected state WRITE_REQUIRED at failure, got %s",
 			agent.State,
 		)
 	}
