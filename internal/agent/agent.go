@@ -48,6 +48,13 @@ type Agent struct {
 	PendingAction *PendingAction
 	Nudges        int
 
+	// TestEntryRequested is a one-shot latch for the synthetic-PASS
+	// honesty guard: it allows exactly one corrective WRITE_REQUIRED
+	// request asking the model to produce a real test artifact. Without
+	// the latch, a model that keeps writing non-test Go sources would
+	// ping-pong VERIFY_DIFF -> WRITE_REQUIRED forever.
+	TestEntryRequested bool
+
 	TaskHash string
 }
 
@@ -1088,6 +1095,28 @@ func (a *Agent) Run(task string) error {
 					path := pending.Args["path"]
 
 					if path != "" {
+						/*
+							The physical write is already on disk and was
+							validated byte-for-byte by reconcile(). Re-executing
+							Router.Write() would be wrong for a new (non-CAS)
+							file: the file legitimately exists now, so we take
+							the trusted snapshot from its actual content and
+							recompute the exact base hash for future writes.
+						*/
+						fullPath := filepath.Join(a.Root, filepath.Clean(path))
+
+						data, readErr := os.ReadFile(fullPath)
+						if readErr != nil {
+							return fmt.Errorf(
+								"recover completed write %s: %w",
+								path,
+								readErr,
+							)
+						}
+
+						a.ReadFiles[path] = string(data)
+						baseHash := contentHash(string(data))
+
 						a.Wrote = true
 						a.LastWritePath = path
 
@@ -1100,7 +1129,7 @@ func (a *Agent) Run(task string) error {
 							"",
 							true,
 							0,
-							pending.BaseHash,
+							baseHash,
 							path,
 							content,
 						)
@@ -1240,7 +1269,25 @@ func (a *Agent) Run(task string) error {
 				)
 			}
 
-			a.State = StateTest
+			/*
+				Honesty guard (synthetic PASS prevention): a written Go
+				source with no test artifact on disk must not be routed
+				into the deterministic data-file PASS branch. The model
+				has to generate a real test first; if it does not, the
+				TEST state blocks completion without any network request.
+				Pure data-file tasks (.txt etc.) are unaffected.
+			The guard may fire only once per run: without this latch a
+			model that keeps writing non-test Go sources would ping-pong
+			VERIFY_DIFF -> WRITE_REQUIRED forever. After one corrective
+			request the honest TEST state decides -- either a real test
+			artifact exists or completion is blocked deterministically.
+			*/
+			if a.hasUnverifiedGoSource() && !a.TestEntryRequested {
+				a.TestEntryRequested = true
+				a.State = StateWriteReq
+			} else {
+				a.State = StateTest
+			}
 
 			if err := a.saveState(task, iteration); err != nil {
 				return err
@@ -1261,10 +1308,19 @@ func (a *Agent) Run(task string) error {
 				  3. if neither exists there is nothing to verify:
 				     completion stays blocked deterministically without
 				     any network request.
+
+				detectTestFile() answers "which test artifact should run",
+				not "does it exist": its deterministic fallback returns
+				"test.go" even when no test file was ever created. Only a
+				file that actually exists on disk may be treated as a real
+				test artifact; otherwise a data-file task (e.g. writing
+				hello.txt) would be misclassified as a code task and sent
+				into the synthetic PASS branch, skipping the honest
+				no-test-artifact block below.
 			*/
 			path := ""
 			hasDetectedTest := false
-			if detected := a.detectTestFile(); detected != "" && a.Router.Exists(detected) {
+			if detected := a.detectTestFile(); a.Router.Exists(detected) {
 				path = detected
 				hasDetectedTest = true
 			} else if a.LastWritePath != "" && a.Router.Exists(a.LastWritePath) && filepath.Ext(a.LastWritePath) == ".go" {
@@ -1308,6 +1364,32 @@ func (a *Agent) Run(task string) error {
 					return fmt.Errorf(
 						"completion blocked: data-file task has no successful write to verify",
 					)
+				}
+
+				/*
+					Honesty guard for the synthetic PASS: it may only be used
+					for tasks whose every changed file is a non-Go data file.
+					A Go source that was written but never compiled/tested
+					must not be marked as verified without an actual run —
+					otherwise the PASS marker would fabricate proof of a check
+					that never happened.
+				*/
+				for _, item := range a.History {
+					var changed string
+					switch {
+					case strings.HasPrefix(item, "write_file:"):
+						changed = strings.TrimPrefix(item, "write_file:")
+					case strings.HasPrefix(item, "repair_write:"):
+						changed = strings.TrimPrefix(item, "repair_write:")
+					default:
+						continue
+					}
+					if filepath.Ext(changed) == ".go" {
+						return fmt.Errorf(
+							"completion blocked: Go source %q was written but no test artifact exists to verify it",
+							changed,
+						)
+					}
 				}
 
 				a.recordAction(
@@ -1956,6 +2038,43 @@ func (a *Agent) Run(task string) error {
 
 			baseHash := ""
 
+			/*
+				Sandbox ordering contract (Perl→Go migration, fix #6):
+				a protected path must be rejected BEFORE the CAS
+				trusted-snapshot preflight. Otherwise an existing
+				protected file without a snapshot aborts the run with
+				"no trusted read snapshot", masking the canonical
+				Router rejection "protected file cannot be modified"
+				and making the protection error depend on snapshot
+				state. Router.write() itself already enforces this
+				order; the FSM preflight must not contradict it.
+			*/
+			if a.Router.IsProtected(path) {
+				result := a.Router.Write(path, content)
+				a.recordActionWithBaseHash(
+					iteration,
+					"write_file",
+					"write completed",
+					result.Error,
+					result.OK,
+					result.Exit,
+					"",
+					path,
+					content,
+				)
+				a.PendingAction = nil
+
+				fmt.Printf(
+					"[BRATAN GO] write_file failed: %s\n",
+					result.Error,
+				)
+				return fmt.Errorf(
+					"write_file failed for %q: %s",
+					path,
+					result.Error,
+				)
+			}
+
 			if hasSnapshot {
 				baseHash = contentHash(baseContent)
 			} else if a.Router.Exists(path) {
@@ -2448,6 +2567,63 @@ file under the project root. The check consults the ProjectIndex first
 files are never treated as repairable sources, so fabricated names in
 garbage test output cannot become repair targets.
 */
+/*
+hasUnverifiedGoSource reports whether the task wrote at least one Go
+source file while no test artifact exists on disk to verify it.
+
+Contract (synthetic-PASS prevention):
+  - *_test.go files and a root-level test.go are test artifacts; their
+    presence means verification is possible, so they do not count as
+    "unverified sources";
+  - any other *.go file that appears in History as write_file:/repair_write:
+    AND still exists under the project root is an unverified source —
+    it was written but never compiled/tested;
+  - pure data-file tasks (.txt etc.) never match, so their deterministic
+    completion path stays intact.
+
+The method only routes the FSM to WRITE_REQUIRED (ask the model for a real
+test); it does not fabricate results and does not weaken the TEST-state
+honesty guard, which blocks completion when a Go source has no test
+artifact even after the extra request.
+*/
+func (a *Agent) hasUnverifiedGoSource() bool {
+	// Any existing test artifact on disk makes verification possible.
+	for _, candidate := range []string{"test.go"} {
+		if a.Router.Exists(candidate) {
+			return false
+		}
+	}
+	entries, err := os.ReadDir(a.Root)
+	if err == nil {
+		for _, e := range entries {
+			if !e.IsDir() && strings.HasSuffix(e.Name(), "_test.go") {
+				return false
+			}
+		}
+	}
+
+	for _, item := range a.History {
+		var changed string
+		switch {
+		case strings.HasPrefix(item, "write_file:"):
+			changed = strings.TrimPrefix(item, "write_file:")
+		case strings.HasPrefix(item, "repair_write:"):
+			changed = strings.TrimPrefix(item, "repair_write:")
+		default:
+			continue
+		}
+		if !strings.HasSuffix(changed, ".go") ||
+			strings.HasSuffix(changed, "_test.go") ||
+			filepath.Base(changed) == "test.go" {
+			continue
+		}
+		if a.Router.Exists(changed) {
+			return true
+		}
+	}
+	return false
+}
+
 func (a *Agent) sourceFileExists(rel string) bool {
 	if rel == "" || strings.HasSuffix(rel, "_test.go") {
 		return false
